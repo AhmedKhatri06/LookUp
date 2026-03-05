@@ -52,9 +52,18 @@ export function calculateImageScore(item, targetName = "", contextKeywords = [])
     if (targetName) {
         const nameParts = targetLower.split(' ').filter(p => p.length > 2);
         const matches = nameParts.filter(part => {
-            return title.includes(part) || link.includes(part) || imageUrl.includes(part);
+            // Regex to ensure it's a standalone word or part of a path (common for names in URLs)
+            const regex = new RegExp(`\\b${part}\\b`, 'i');
+            return regex.test(title) || link.includes(part) || imageUrl.includes(part);
         }).length;
-        score += (matches / nameParts.length) * 50;
+
+        if (matches === nameParts.length) {
+            score += 60; // Perfect name match (all parts)
+        } else if (matches > 0) {
+            score += (matches / nameParts.length) * 40;
+        } else {
+            score -= 30; // No name parts match at all
+        }
     }
 
     // 2. Context-Aware Scoring (CRITICAL for resolving Name Collisions)
@@ -65,37 +74,56 @@ export function calculateImageScore(item, targetName = "", contextKeywords = [])
         }).length;
 
         if (contextMatches > 0) {
-            score += 25; // Significant boost for context match
+            score += 30; // Boost for context match
         }
     }
 
-    // 3. Platform Trust Scoring
-    if (link.includes("linkedin.com")) score += 30;
-    else if (link.includes("crunchbase.com") || link.includes("forbes.com") || link.includes("bloomberg.com")) score += 20;
-    else if (link.includes("twitter.com") || link.includes("facebook.com")) score += 15;
+    // 3. Platform Trust & Penalty
+    // High Trust - likely person profiles
+    if (link.includes("linkedin.com/in/")) score += 40;
+    else if (link.includes("instagram.com") || link.includes("facebook.com")) score += 20;
+    else if (link.includes("twitter.com") || link.includes("x.com") || link.includes("crunchbase.com")) score += 20;
 
-    // 4. Aspect Ratio Filter
+    // Document Penalties - likely unrelated scans/PDFs
+    const docSites = ["archive.org", "scribd.com", "academia.edu", "researchgate.net", "slideshare.net", "issuu.com", "pdf", "book", "memo", "census"];
+    if (docSites.some(site => link.includes(site))) {
+        score -= 70;
+    }
+
+    // 4. Aspect Ratio Filter (Optimized for Square/Profile Portraits)
     const width = item.imageWidth || 0;
     const height = item.imageHeight || 0;
-    let ratioScore = 0;
     if (width > 0 && height > 0) {
         const ratio = width / height;
-        if (ratio > 1.4) ratioScore = -60; // Landscape/Banner
-        else if (ratio < 0.5) ratioScore = -40; // Too narrow
-        else if (ratio >= 0.7 && ratio <= 1.2) ratioScore = 25;
+        if (ratio > 1.5) score -= 80; // Banner/Landscape (highly unlikely to be a profile shot)
+        else if (ratio < 0.4) score -= 60; // Too narrow
+        else if (ratio >= 0.8 && ratio <= 1.25) {
+            // Square/Portrait - Good for faces
+            score += 20;
+            if (title.includes("profile") || title.includes("headshot") || title.includes("photo")) {
+                score += 20;
+            }
+        }
     }
-    score += ratioScore;
 
-    // 5. Junk Keywords Negative Score
+    // 5. Junk Keywords & Document Filtering
     const junkKeywords = [
         "profiles", "members", "team", "group", "directory", "staff", "faculty", "associates", "class of",
         "stock photo", "generic", "everyone", "people named", "community", "banner", "logo", "icon",
-        "placeholder", "avatar", "default", "screenshot", "presentation", "slide", "event", "summit", "conference"
+        "placeholder", "avatar", "default", "screenshot", "presentation", "slide", "event", "summit", "conference",
+        "pdf", "census", "record", "memo", "document", "report", "manual", "publication", "article", "gazette",
+        "town directory", "register", "graduate", "story", "rules", "film", "quarterly"
     ];
 
     const combinedLower = `${title} ${link} ${imageUrl}`.toLowerCase();
     if (junkKeywords.some(kw => combinedLower.includes(kw))) {
-        score -= 50;
+        score -= 60;
+    }
+
+    // 6. Face/Profile Boost
+    const profileBoosters = ["profile", "face", "headshot", "portrait", "biography", "identity"];
+    if (profileBoosters.some(kw => combinedLower.includes(kw))) {
+        score += 15;
     }
 
     return score;
@@ -137,18 +165,25 @@ export async function searchImages(query, targetName = "", contextKeywords = [])
             .filter(item => item.score >= 10)
             .sort((a, b) => b.score - a.score);
 
-        // FALLBACK: If we filtered too aggressively, take the top 3 even if score is lower
+        // FALLBACK: If we filtered too aggressively, take only the best ones that AT LEAST match the name
         if (filtered.length === 0 && results.length > 0) {
-            console.log(`[Image Discovery] Scoring was too strict, taking top raw results for: ${targetName}`);
-            return results.slice(0, 5).map((item, index) => ({
-                id: `image-fb-${index}`,
-                title: item.title,
-                imageUrl: item.imageUrl,
-                thumbnailUrl: item.thumbnailUrl,
-                sourceUrl: item.link,
-                source: 'Google Images (Strictness Fallback)',
-                confidence: 10
-            }));
+            const fallbackResults = scored
+                .filter(item => item.score > -20) // Don't take absolute junk
+                .slice(0, 3);
+
+            if (fallbackResults.length > 0) {
+                console.log(`[Image Discovery] Using limited fallback for: ${targetName}`);
+                return fallbackResults.map((item, index) => ({
+                    id: `image-fb-${index}`,
+                    title: item.title,
+                    imageUrl: item.imageUrl,
+                    thumbnailUrl: item.thumbnailUrl,
+                    sourceUrl: item.link,
+                    source: 'Google Images (Selective Fallback)',
+                    confidence: item.score
+                }));
+            }
+            return []; // Better to show nothing than wrong documents
         }
 
         return filtered.map((item, index) => ({
