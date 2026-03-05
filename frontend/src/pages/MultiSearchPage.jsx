@@ -122,12 +122,36 @@ const MultiSearchPage = () => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    // Auto-Country Detection
+    // Auto-Country Detection & Auto-Switch to Phone Mode
     useEffect(() => {
-        if (searchMode === SEARCH_MODES.PHONE && query.startsWith('+')) {
-            const matched = COUNTRIES.find(c => query.startsWith(c.prefix));
-            if (matched && matched.code !== selectedCountry.code) {
-                setSelectedCountry(matched);
+        // If user is typing a query that looks like a phone number, optionally auto-switch modes or detect country
+        const cleanQuery = query.replace(/\D/g, "");
+
+        if (searchMode === SEARCH_MODES.PHONE) {
+            if (query.startsWith('+')) {
+                const matched = COUNTRIES.find(c => query.startsWith(c.prefix));
+                if (matched && matched.code !== selectedCountry.code) {
+                    setSelectedCountry(matched);
+                }
+            } else if (cleanQuery.length >= 10) {
+                // If no plus, try to guess based on length and starting digit
+                if (cleanQuery.length === 10) {
+                    const firstDigit = cleanQuery.charAt(0);
+                    // Indian numbers typically start with 6, 7, 8, 9
+                    if (['6', '7', '8', '9'].includes(firstDigit)) {
+                        const india = COUNTRIES.find(c => c.code === 'IN');
+                        if (india && selectedCountry.code !== 'IN') setSelectedCountry(india);
+                    } else {
+                        // Otherwise default guess to US for 10 digit
+                        const us = COUNTRIES.find(c => c.code === 'US');
+                        if (us && selectedCountry.code !== 'US') setSelectedCountry(us);
+                    }
+                }
+            }
+        } else if (searchMode === SEARCH_MODES.GENERAL) {
+            // Auto switch to phone mode if they type a plus followed by numbers
+            if (query.startsWith('+') && query.length > 1 && /^\+\d+$/.test(query.replace(/\s/g, ''))) {
+                setSearchMode(SEARCH_MODES.PHONE);
             }
         }
     }, [query, searchMode, COUNTRIES, selectedCountry]);
@@ -601,21 +625,11 @@ const MultiSearchPage = () => {
                     <div className="home-view">
                         <div className="hero-box">
                             <div className={`hero-search-container animate-fade-up ${searchMode === SEARCH_MODES.PHONE ? 'phone-mode' : ''}`}>
-                                <div className="mode-toggle-wrapper">
-                                    <button
-                                        className={`mode-btn ${searchMode === SEARCH_MODES.GENERAL ? 'active' : ''}`}
-                                        onClick={() => setSearchMode(SEARCH_MODES.GENERAL)}
-                                        title="General Search"
-                                    >
-                                        🔍
-                                    </button>
-                                    <button
-                                        className={`mode-btn ${searchMode === SEARCH_MODES.PHONE ? 'active' : ''}`}
-                                        onClick={() => setSearchMode(SEARCH_MODES.PHONE)}
-                                        title="Number Search"
-                                    >
-                                        📞
-                                    </button>
+                                <div className="search-icon-left" style={{ padding: '0 12px', color: 'var(--text-muted)' }}>
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                    </svg>
                                 </div>
 
                                 {searchMode === SEARCH_MODES.PHONE && (
@@ -649,6 +663,37 @@ const MultiSearchPage = () => {
                                     onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
                                     autoFocus
                                 />
+                                <button
+                                    className={`keypad-toggle-btn ${searchMode === SEARCH_MODES.PHONE ? 'active' : ''}`}
+                                    onClick={() => setSearchMode(prev => prev === SEARCH_MODES.GENERAL ? SEARCH_MODES.PHONE : SEARCH_MODES.GENERAL)}
+                                    title="Search by Phone Number"
+                                    style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '8px',
+                                        marginRight: '8px',
+                                        color: searchMode === SEARCH_MODES.PHONE ? 'var(--accent)' : 'var(--text-muted)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        borderRadius: 'var(--radius-md)',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                >
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <rect x="4" y="2" width="16" height="20" rx="3"></rect>
+                                        <path d="M8 7h.01"></path>
+                                        <path d="M12 7h.01"></path>
+                                        <path d="M16 7h.01"></path>
+                                        <path d="M8 12h.01"></path>
+                                        <path d="M12 12h.01"></path>
+                                        <path d="M16 12h.01"></path>
+                                        <path d="M8 17h.01"></path>
+                                        <path d="M12 17h.01"></path>
+                                        <path d="M16 17h.01"></path>
+                                    </svg>
+                                </button>
                                 <button className="hero-search-btn" onClick={() => handleIdentify()}>
                                     Run Intelligence
                                 </button>
@@ -667,6 +712,57 @@ const MultiSearchPage = () => {
                                 <div className="indicator">
                                     <div className="indicator-dot"></div>
                                     <span>Real-time results</span>
+                                </div>
+                            </div>
+
+                            {/* Mobile-only content to fill blank space */}
+                            <div className="mobile-home-extras animate-fade-up">
+                                <div className="mobile-stats-row">
+                                    <div className="mobile-stat-chip">
+                                        <span className="stat-icon">🧠</span>
+                                        <div>
+                                            <div className="stat-num">10M+</div>
+                                            <div className="stat-label">Records</div>
+                                        </div>
+                                    </div>
+                                    <div className="mobile-stat-chip">
+                                        <span className="stat-icon">⚡</span>
+                                        <div>
+                                            <div className="stat-num">&lt;2s</div>
+                                            <div className="stat-label">Results</div>
+                                        </div>
+                                    </div>
+                                    <div className="mobile-stat-chip">
+                                        <span className="stat-icon">🔒</span>
+                                        <div>
+                                            <div className="stat-num">100%</div>
+                                            <div className="stat-label">Private</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="mobile-feature-list">
+                                    <div className="mobile-feature-item">
+                                        <div className="mf-icon">🌐</div>
+                                        <div className="mf-text">
+                                            <div className="mf-title">Cross-Platform Search</div>
+                                            <div className="mf-desc">Search across CSV, SQL & online sources simultaneously</div>
+                                        </div>
+                                    </div>
+                                    <div className="mobile-feature-item">
+                                        <div className="mf-icon">📱</div>
+                                        <div className="mf-text">
+                                            <div className="mf-title">Phone Intelligence</div>
+                                            <div className="mf-desc">Identify owners from any number worldwide</div>
+                                        </div>
+                                    </div>
+                                    <div className="mobile-feature-item">
+                                        <div className="mf-icon">🎯</div>
+                                        <div className="mf-text">
+                                            <div className="mf-title">AI-Powered Accuracy</div>
+                                            <div className="mf-desc">Smart deduplication and confidence scoring</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

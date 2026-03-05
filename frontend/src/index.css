@@ -204,57 +204,34 @@ body {
   line-height: 1.05;
 }
 
-.hero-search-container {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: var(--radius-xl);
-  padding: 0.625rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  box-shadow: 0 40px 100px -20px rgba(15, 23, 42, 0.12),
-    0 0 0 1px rgba(15, 23, 42, 0.04);
-  margin-bottom: 3vh;
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  position: relative;
-  z-index: 100;
-}
 
-.mode-toggle-wrapper {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: var(--radius-md);
-  margin-right: 4px;
-}
 
-.mode-btn {
-  background: none;
+.keypad-toggle-btn {
+  background: transparent;
   border: none;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
   cursor: pointer;
+  padding: 8px;
+  margin-right: 8px;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1rem;
-  transition: all 0.2s;
-  opacity: 0.5;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
 }
 
-.mode-btn:hover {
-  background: rgba(0, 0, 0, 0.05);
-  opacity: 1;
+.keypad-toggle-btn:hover {
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--primary);
 }
 
-.mode-btn.active {
-  background: white;
-  box-shadow: var(--shadow-sm);
-  opacity: 1;
+.keypad-toggle-btn.active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.keypad-toggle-btn.active svg {
+  filter: drop-shadow(0 2px 4px rgba(37, 99, 235, 0.2));
 }
 
 .country-selector-box {
@@ -366,11 +343,42 @@ body {
   }
 }
 
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-search-container {
+  background: #ffffff;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 2px solid rgba(37, 99, 235, 0.15);
+  border-radius: var(--radius-xl);
+  padding: 0.625rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 40px 100px -20px rgba(15, 23, 42, 0.12),
+    0 8px 30px rgba(37, 99, 235, 0.05);
+  margin-bottom: 3vh;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  z-index: 100;
+}
+
 .hero-search-container:focus-within {
   transform: translateY(-4px) scale(1.01);
-  border-color: transparent;
-  box-shadow: 0 40px 100px -20px rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.9);
+  border-color: var(--accent);
+  box-shadow: 0 40px 100px -20px rgba(15, 23, 42, 0.12),
+    0 0 0 4px var(--accent-glow);
+  background: #ffffff;
 }
 
 .hero-search-input:focus {
@@ -503,6 +511,10 @@ body {
   border-radius: 50%;
 }
 
+/* ─── Mobile Home Extras (hidden on desktop) ─── */
+.mobile-home-extras {
+  display: none;
+}
 
 /* Results Layout */
 
@@ -1759,28 +1771,32 @@ body {
 /* Mobile Phones (up to 480px) */
 @media (max-width: 480px) {
   :root {
-    --nav-height: 64px;
+    --nav-height: 50px;
   }
 
   .home-view {
     justify-content: center;
     padding-top: 0;
-    height: 100%;
+    min-height: calc(100vh - var(--nav-height));
+    height: auto;
     width: 100%;
     overflow: hidden;
+    padding-bottom: 0.5rem;
+    box-sizing: border-box;
   }
 
   /* Profile Hero Mobile Optmization */
   .profile-hero {
-    padding: 2rem 1rem;
-    margin-bottom: 1.5rem;
+    padding: 0.5rem 0;
+    margin-bottom: 0.5rem;
   }
 
   .profile-hero-content {
     flex-direction: column;
     text-align: center;
-    gap: 1.5rem;
+    gap: 0.5rem;
     width: 100%;
+    padding: 1rem 0.5rem;
   }
 
   .profile-info {
@@ -1792,74 +1808,400 @@ body {
     justify-content: center;
     gap: 0.5rem;
     flex-wrap: wrap;
-    margin-top: 2vh;
+    margin-top: 0;
+    padding-bottom: 0;
   }
 
   .indicator {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.95rem;
-    font-weight: 500;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .indicator-dot {
+    width: 4px;
+    height: 4px;
   }
 
   .profile-name {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
   }
 
   .profile-quick-links {
     justify-content: center;
   }
 
+  /* ─── Country Dropdown Mobile Fix ─── */
+  .country-selector-box {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  /* Make prefix pill compact on small screens */
+  .phone-prefix {
+    padding: 0 8px;
+    height: 36px;
+    gap: 4px;
+    border-right: 1px solid rgba(15, 23, 42, 0.08);
+    margin-right: 4px;
+  }
+
+  .phone-prefix .flag {
+    font-size: 1rem;
+  }
+
+  .phone-prefix .prefix {
+    font-size: 0.8rem;
+  }
+
+  .phone-prefix .chevron {
+    font-size: 0.5rem;
+    display: none;
+    /* hide on very small screens */
+  }
+
+  /* Dropdown opens UPWARD on mobile so it doesn't cover content below */
+  .country-dropdown {
+    position: fixed !important;
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 50vh;
+    overflow-y: auto;
+    z-index: 99999 !important;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.15);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding: 8px 8px 24px;
+    background: white;
+    border-top: 1px solid var(--border-light);
+    animation: slide-up 0.25s ease-out;
+  }
+
+  .country-option {
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+  }
+
+  .country-option:hover {
+    background: var(--bg-subtle);
+  }
+
+  /* ─── Phone Mode Search Bar (mobile only) ─── */
+  .hero-search-container.phone-mode {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    border-radius: 50px !important;
+    padding: 0.3rem !important;
+    border: 2px solid rgba(37, 99, 235, 0.25) !important;
+    gap: 0 !important;
+    background: white !important;
+  }
+
+  /* Hide search icon in phone mode */
+  .hero-search-container.phone-mode .search-icon-left {
+    display: none !important;
+  }
+
+  /* Hide keypad toggle once in phone mode */
+  .hero-search-container.phone-mode .keypad-toggle-btn {
+    display: none !important;
+  }
+
+  /* Country selector wrapper — does NOT grow */
+  .hero-search-container.phone-mode .country-selector-box {
+    flex: 0 0 auto !important;
+    flex-shrink: 0 !important;
+    position: relative;
+  }
+
+  /* Dark pill badge showing flag + country code */
+  .hero-search-container.phone-mode .phone-prefix {
+    flex: 0 0 auto !important;
+    flex-shrink: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    background: var(--primary) !important;
+    color: white !important;
+    border-right: none !important;
+    border-radius: 40px !important;
+    padding: 0 14px !important;
+    height: 40px !important;
+    margin-right: 6px !important;
+    width: auto !important;
+    min-width: unset !important;
+    cursor: pointer;
+  }
+
+  .hero-search-container.phone-mode .phone-prefix .flag {
+    font-size: 1rem !important;
+    line-height: 1;
+  }
+
+  .hero-search-container.phone-mode .phone-prefix .prefix {
+    font-size: 0.82rem !important;
+    font-weight: 700 !important;
+    color: white !important;
+    white-space: nowrap;
+  }
+
+  .hero-search-container.phone-mode .phone-prefix .chevron {
+    display: none !important;
+  }
+
+  /* Input takes ALL remaining space */
+  .hero-search-container.phone-mode .hero-search-input {
+    flex: 1 1 0% !important;
+    min-width: 0 !important;
+    width: 0 !important;
+    /* Force flex to control it */
+    font-size: 1rem !important;
+    padding: 0.5rem 0.25rem !important;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+  }
+
+  /* Circular arrow button on the right */
+  .hero-search-container.phone-mode .hero-search-btn {
+    flex: 0 0 44px !important;
+    flex-shrink: 0 !important;
+    width: 44px !important;
+    height: 44px !important;
+    padding: 0 !important;
+    font-size: 0 !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: unset !important;
+  }
+
+  .hero-search-container.phone-mode .hero-search-btn::after {
+    content: '' !important;
+    display: block;
+    width: 20px;
+    height: 20px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3Cpolyline points='12 5 19 12 12 19'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+
+  /* ─── Mobile Home Extras ─── */
+  .mobile-home-extras {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1.25rem;
+    width: 100%;
+  }
+
+  .mobile-stats-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+
+  .mobile-stat-chip {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: white;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 0.75rem 0.5rem;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  }
+
+  .stat-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+  }
+
+  .stat-num {
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: var(--primary);
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-top: 2px;
+  }
+
+  .mobile-feature-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .mobile-feature-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: white;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 0.85rem 1rem;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  }
+
+  .mf-icon {
+    font-size: 1.4rem;
+    flex-shrink: 0;
+  }
+
+  .mf-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 2px;
+  }
+
+  .mf-desc {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    line-height: 1.3;
+  }
+
   /* Loading Screen Mobile Optimization */
   .floating-intelligence-pill {
-    padding: 1.5rem;
-    border-radius: 20px;
+    padding: 1rem;
+    border-radius: 12px;
+    width: 95%;
   }
 
   .pill-top-section {
     flex-direction: column;
     text-align: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.75rem;
   }
 
   .ai-target-title {
-    font-size: 1.1rem;
+    font-size: 0.95rem;
   }
 
   .cancel-pill {
-    top: 1rem;
-    right: 1rem;
-    padding: 6px 12px;
-    font-size: 0.75rem;
+    top: 0.75rem;
+    right: 0.75rem;
+    padding: 4px 8px;
+    font-size: 0.65rem;
   }
 
   .hero-tag {
-    margin-bottom: 0.5rem;
-    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.6rem;
   }
 
   .hero-title {
-    font-size: 1.5rem;
-    line-height: 1.1;
-    margin-bottom: 1.5rem;
+    font-size: 1.6rem;
+    line-height: 1.15;
+    margin-bottom: 1.25rem;
+    padding: 0 0.25rem;
   }
 
+  .hero-tag {
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    margin-bottom: 0.5rem;
+  }
+
+  /* ─── SEARCH BAR MOBILE FIX ─── */
   .hero-search-container {
-    margin-bottom: 1.5rem;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    margin-bottom: 1.25rem;
+    padding: 0.4rem;
+    border-radius: 50px;
+    /* pill style for mobile — premium */
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    gap: 0;
   }
 
-  .trust-indicators {
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-top: 0.5rem;
+  .search-icon-left {
+    flex-shrink: 0;
+    padding: 0 8px !important;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+  }
+
+  .search-icon-left svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .hero-search-input {
+    flex: 1 1 0%;
+    min-width: 0;
+    font-size: 1rem;
+    padding: 0.6rem 0.25rem;
+    background: transparent;
+    border: none;
+    outline: none;
+  }
+
+  .keypad-toggle-btn {
+    flex-shrink: 0;
+    padding: 7px;
+    margin-right: 6px;
+    display: flex;
+    align-items: center;
     justify-content: center;
+  }
+
+  .keypad-toggle-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Icon-only pill button on mobile */
+  .hero-search-btn {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 0 !important;
+    min-width: unset;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .hero-search-btn::after {
+    content: '';
+    display: block;
+    width: 20px;
+    height: 20px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
   }
 
   .identity-card-grid {
     grid-template-columns: 1fr;
-    gap: 1.25rem;
-    padding: 1.25rem;
+    gap: 1rem;
+    padding: 1rem;
   }
 
   .saas-card {
