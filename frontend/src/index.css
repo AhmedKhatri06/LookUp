@@ -920,9 +920,9 @@ body {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.3;
 }
 
 .card-desc {
@@ -978,6 +978,12 @@ body {
   font-weight: 600;
   margin: 0;
   line-height: 1.4;
+}
+
+/* ─── Selecting View ─── */
+.selecting-view {
+  padding: 2rem 0;
+  width: 100%;
 }
 
 /* ─── Mobile Sticky Search ─── */
@@ -1668,6 +1674,16 @@ body {
     border-radius: var(--radius-md);
   }
 
+  .saas-card {
+    padding: 0.75rem;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .social-grid {
+    gap: 0.5rem;
+  }
+
   .hero-search-btn {
     padding: 0.875rem;
     width: 100%;
@@ -2084,6 +2100,11 @@ body {
   }
 
   /* Icon-only pill button on mobile */
+  .selecting-view {
+    padding-bottom: 110px !important;
+    /* Clearance for sticky search bar (80px + 30px gap) */
+  }
+
   .hero-search-btn {
     flex-shrink: 0;
     width: 44px;

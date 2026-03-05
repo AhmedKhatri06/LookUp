@@ -771,7 +771,7 @@ const MultiSearchPage = () => {
 
                 {/* 2. Selecting View (Structured Candidates) */}
                 {stage === STAGES.SELECTING && (
-                    <div className="selecting-view" style={{ padding: '2rem 0' }}>
+                    <div className="selecting-view">
                         <div className="animate-fade-up" style={{ marginBottom: '2rem' }}>
                             <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800 }}>Potential intel matches</h2>
                         </div>
