@@ -16,6 +16,33 @@ export function detectInputType(query) {
 }
 
 /**
+ * Normalizes a name for entity resolution by stripping titles, suffixes, and symbols.
+ * @param {string} name 
+ * @returns {string}
+ */
+export function normalizeName(name) {
+    if (!name) return "";
+
+    // 1. Convert to lowercase and trim
+    let n = name.toLowerCase().trim();
+
+    // 2. Remove common titles and suffixes (e.g., Mr., Dr., CEO, Founder)
+    const junkPatterns = [
+        /\b(mr|mrs|ms|dr|prof|sir|lord)\.?\s+/gi,
+        /\s+\b(ceo|cto|cfo|md|phd|manager|director|founder|co-founder|student|engineer|developer|associates|lead)\b/gi,
+        /\s+\b(jr|sr|iii|iv|v)\b\.?$/gi,
+        /["'()|,\-]/g // Strip quotes, parens, and separators
+    ];
+
+    junkPatterns.forEach(pattern => {
+        n = n.replace(pattern, " ");
+    });
+
+    // 3. Compact whitespace and sort words (to handle "Ahmed Khatri" vs "Khatri Ahmed")
+    return n.split(/\s+/).filter(word => word.length > 1).sort().join(" ").trim();
+}
+
+/**
  * Normalizes a phone number to a standard format (e.g., 91XXXXXXXXXX).
  * @param {string} phone 
  * @returns {string}

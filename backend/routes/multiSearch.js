@@ -8,9 +8,10 @@ import { sqliteSearch } from "../db/sqlite.js";
 import { identifyPeople } from "../services/aiService.js";
 import { extractSocialAccounts } from "../services/socialMediaService.js";
 import { parseSocialProfile } from "../services/socialProfileParser.js";
-import { detectInputType, normalizePhoneNumber, extractContacts } from "../utils/searchHelper.js";
+import { detectInputType, normalizePhoneNumber, extractContacts, normalizeName } from "../utils/searchHelper.js";
 import { searchCSVs } from "../services/csvSearchService.js";
 import { searchImages, calculateImageScore } from "../services/internetSearch.js";
+import { verifyFaceSimilarity } from "../services/faceVerificationService.js";
 
 dotenv.config();
 
@@ -506,9 +507,71 @@ router.post("/identify", async (req, res) => {
         }
         console.timeEnd("[AI] Identification Phase");
 
-        // 3. Combine and Deduplicate
+        // 3. Combine and Deduplicate (Robust Entity Resolution)
         const combined = [...localCandidates, ...internetCandidates];
-        const dedupedMap = new Map();
+        const mergedIdentities = new Map();
+
+        combined.forEach(candidate => {
+            const rawName = candidate.name || "Unknown";
+            const normName = normalizeName(rawName);
+            const normCompany = (candidate.company || "").toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+            const normRole = (candidate.description || candidate.jobTitle || "").toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+
+            // Composite Key: Name + Company (if available)
+            const compositeKey = `${normName}|${normCompany}|${normRole}`;
+
+            // Fuzzy search for existing identity
+            let existingKey = null;
+            for (const [key, existing] of mergedIdentities.entries()) {
+                const nameMatch = key.split('|')[0] === normName;
+                const companyMatch = normCompany && key.split('|')[1] === normCompany;
+
+                const candidateEmails = candidate.email ? [candidate.email] : (candidate.emails || []);
+                const candidatePhones = candidate.phoneNumbers || (candidate.phone ? [candidate.phone] : []);
+
+                const sharedEmail = candidateEmails.some(e => existing.emails.includes(e));
+                const sharedPhone = candidatePhones.some(p => existing.phoneNumbers.includes(p));
+
+                if (key === compositeKey || (nameMatch && (sharedEmail || sharedPhone || companyMatch))) {
+                    existingKey = key;
+                    break;
+                }
+            }
+
+            if (!existingKey) {
+                mergedIdentities.set(compositeKey, {
+                    ...candidate,
+                    otherSources: candidate.source ? [candidate.source] : [],
+                    phoneNumbers: candidate.phoneNumbers || (candidate.phone ? [candidate.phone] : []),
+                    emails: candidate.email ? [candidate.email] : (candidate.emails || []),
+                    socials: candidate.url && candidate.source === "internet" ? [{ platform: 'Web', url: candidate.url }] : []
+                });
+            } else {
+                const existing = mergedIdentities.get(existingKey);
+                if (existing.source !== "local" && candidate.source === "local") {
+                    existing.name = candidate.name;
+                    existing.description = candidate.description || existing.description;
+                    existing.location = candidate.location || existing.location;
+                    existing.source = "local";
+                }
+                if (candidate.phoneNumbers) candidate.phoneNumbers.forEach(p => {
+                    if (!existing.phoneNumbers.includes(p)) existing.phoneNumbers.push(p);
+                });
+                if (candidate.phone && !existing.phoneNumbers.includes(candidate.phone)) existing.phoneNumbers.push(candidate.phone);
+                if (candidate.email && !existing.emails.includes(candidate.email)) existing.emails.push(candidate.email);
+                if (candidate.emails) candidate.emails.forEach(e => {
+                    if (!existing.emails.includes(e)) existing.emails.push(e);
+                });
+                if (candidate.source && !existing.otherSources.includes(candidate.source)) {
+                    existing.otherSources.push(candidate.source);
+                }
+                if (candidate.source === "internet" && candidate.url) {
+                    if (!existing.socials.some(s => s.url === candidate.url)) {
+                        existing.socials.push({ platform: 'Web', url: candidate.url });
+                    }
+                }
+            }
+        });
 
         // Check for Direct Resolve (Phone searches with unique local matches)
         let directResolve = false;
@@ -520,22 +583,7 @@ router.post("/identify", async (req, res) => {
             resolvedPersona = localCandidates[0];
         }
 
-        combined.forEach(c => {
-            const normName = (c.name || "").toLowerCase().trim();
-            const normUrl = (c.url || "").toLowerCase().trim();
-            const key = normUrl ? `${normName}|| ${normUrl} ` : normName;
-
-            if (!dedupedMap.has(key)) {
-                dedupedMap.set(key, c);
-            } else {
-                const existing = dedupedMap.get(key);
-                if (existing.source === "internet" && c.source === "local") {
-                    dedupedMap.set(key, c);
-                }
-            }
-        });
-
-        const finalCandidates = Array.from(dedupedMap.values())
+        const finalCandidates = Array.from(mergedIdentities.values())
             .sort((a, b) => {
                 if (a.source === "local" && b.source !== "local") return -1;
                 if (a.source !== "local" && b.source === "local") return 1;
@@ -564,11 +612,10 @@ router.post("/deep", async (req, res) => {
     if (!person || !person.name) return res.status(400).json({ error: "Person data required" });
 
     // Clean name and keyword
-    // The name might contain metadata like "Ahmed Khatri Student" or "Name - Keyword"
     let name = person.name || "";
     let keyword = person.keywordMatched || "";
 
-    // If name contains a separator, split it
+    // 1. Strip common separators and extract keyword if missing
     if (name.includes(" - ")) {
         const parts = name.split(" - ");
         name = parts[0].trim();
@@ -579,18 +626,20 @@ router.post("/deep", async (req, res) => {
         if (!keyword) keyword = parts[1].trim();
     }
 
-    // Deduplicate: If the name ends with the same words as the keyword, trim the name
-    const nameLower = name.toLowerCase();
-    const keywordLower = keyword.toLowerCase();
-    if (keywordLower && nameLower.endsWith(" " + keywordLower)) {
-        name = name.substring(0, name.length - (keyword.length + 1)).trim();
-    } else if (keywordLower && nameLower.includes(keywordLower)) {
-        // More aggressive: if the keyword is anywhere in the name, try to extract just the first two words as the base name
-        const nameParts = name.split(' ');
-        if (nameParts.length > 2) {
-            name = `${nameParts[0]} ${nameParts[1]} `;
+    // 2. Remove redundant keyword suffixes from the name (Case Insensitive)
+    if (keyword) {
+        const kw = keyword.toLowerCase().trim();
+        let nl = name.toLowerCase();
+        if (nl.endsWith(" " + kw)) {
+            name = name.substring(0, name.length - (kw.length + 1)).trim();
+        } else if (nl.includes(" - " + kw)) {
+            name = name.split(" - ")[0].trim();
         }
     }
+
+    // 3. Final Name Polish: ensure we have at least First and Last name
+    // But DON'T aggressively cut to 2 words if it's already a clean name
+    name = name.replace(/["'()]/g, "").trim();
 
     // Scrub common "junk" descriptions from professions/location
     const scrub = (str) => {
@@ -749,6 +798,16 @@ router.post("/deep", async (req, res) => {
         console.log(`[Deep Search] Social profiles found: ${socialProfiles.length} `);
         socialProfiles.forEach(s => console.log(`  → ${s.platform}: ${s.username} (${s.url})[score: ${s.identityScore}]`));
 
+        // --- Layer 1: Anchor Selection (Highest Confidence Image) ---
+        let identityAnchor = person.image || person.imageUrl || null;
+        const linkedInProfile = socialProfiles.find(s => s.platform.toLowerCase() === 'linkedin');
+
+        if (linkedInProfile && linkedInProfile.thumbnail) {
+            identityAnchor = linkedInProfile.thumbnail;
+        }
+
+        console.log(`[Deep Search] Identity Anchor elected: ${identityAnchor ? identityAnchor.substring(0, 50) + '...' : 'NONE'}`);
+
         // 4. Extract Contacts
         const webPhones = new Set();
         const webEmails = new Set();
@@ -759,7 +818,6 @@ router.post("/deep", async (req, res) => {
         });
 
         // 5. Image Ranking & Selection Pipeline
-        const linkedInProfile = socialProfiles.find(s => s.platform.toLowerCase() === 'linkedin');
         const twitterProfile = socialProfiles.find(s => s.platform.toLowerCase() === 'twitter');
 
         // Collect all potential images with metadata for ranking
@@ -816,29 +874,44 @@ router.post("/deep", async (req, res) => {
             }
         });
 
-        // Deduplicate, Filter by Score, and Rank
-        const rankedImages = [];
+        // --- Layer 2: Face Similarity Filtering ---
+        const finalGallery = [];
         const seenUrls = new Set();
-
-        candidateImages
+        const verificationList = candidateImages
             .sort((a, b) => b.score - a.score)
-            .forEach(img => {
-                if (!img.url || seenUrls.has(img.url)) return;
+            .filter(img => img.score >= 10 || img.type === 'profile')
+            .slice(0, 8); // Verify top 8 matches to ensure quality and speed
 
-                // FINAL GATE: If an image has a very low score, don't show it at all
-                // SOFTENED: Matches service threshold of 10
-                if (img.score < 10 && img.type !== 'profile') {
-                    console.log(`[Image Selection] Rejecting low - confidence image: ${img.url} (Score: ${img.score})`);
-                    return;
-                }
-                seenUrls.add(img.url);
-                rankedImages.push(img);
+        if (identityAnchor && verificationList.length > 0) {
+            console.log(`[Deep Search] Starting Layer 2: Face Similarity Filtering for ${verificationList.length} images...`);
+            const verificationPromises = verificationList.map(async (img) => {
+                if (img.url === identityAnchor) return { ...img, similarity: 100 };
+                const similarity = await verifyFaceSimilarity(identityAnchor, img.url);
+                return { ...img, similarity };
             });
 
-        // Determine Primary Image (favoring thumbnails for blocked domains)
+            const verifiedImages = await Promise.all(verificationPromises);
+            verifiedImages.forEach(img => {
+                if (img.similarity >= 80 && !seenUrls.has(img.url)) {
+                    seenUrls.add(img.url);
+                    finalGallery.push(img);
+                }
+            });
+            console.log(`[Deep Search] Layer 2 complete. ${finalGallery.length} images passed filter.`);
+        } else {
+            // Fallback if no anchor exists
+            verificationList.slice(0, 10).forEach(img => {
+                if (!seenUrls.has(img.url)) {
+                    seenUrls.add(img.url);
+                    finalGallery.push(img);
+                }
+            });
+        }
+
+        // Determine Primary Image
         let primaryImageObj = null;
-        if (person.primaryImage || person.image) {
-            const pNorm = normalizeImageUrl(person.primaryImage || person.image);
+        if (identityAnchor) {
+            const pNorm = normalizeImageUrl(identityAnchor);
             if (pNorm) {
                 primaryImageObj = {
                     original: pNorm.original,
@@ -848,22 +921,14 @@ router.post("/deep", async (req, res) => {
             }
         }
 
-        if (!primaryImageObj && rankedImages.length > 0) {
-            const best = rankedImages[0];
-            primaryImageObj = {
-                original: best.url,
-                thumbnail: best.thumbnail || best.url,
-                isBlocked: best.isBlocked
-            };
-        }
-
-        const finalImages = rankedImages.map(img => ({
+        const finalImages = finalGallery.map(img => ({
             original: img.url,
             thumbnail: img.thumbnail || img.url,
             source: img.source,
             score: img.score,
+            similarity: img.similarity,
             isBlocked: img.isBlocked
-        })).slice(0, 20);
+        }));
 
         // 6. Article Extraction (excluding results identified as social)
         const socialUrls = new Set(socialProfiles.map(s => s.url.toLowerCase()));
@@ -877,7 +942,7 @@ router.post("/deep", async (req, res) => {
                 ...person,
                 name,
                 primaryImage: primaryImageObj ? (primaryImageObj.isBlocked ? primaryImageObj.thumbnail : primaryImageObj.original) : "",
-                primaryImageObj: primaryImageObj, // Pass full object for frontend resilience
+                primaryImageObj: primaryImageObj,
                 phoneNumbers: [...new Set([...localPhones, ...webPhones])],
                 emails: [...new Set([...localEmails, ...webEmails])]
             },

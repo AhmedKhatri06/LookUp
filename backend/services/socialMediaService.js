@@ -49,37 +49,51 @@ function calculateIdentityScore(result, personName, keywords = [], location = ''
         return 100;
     }
 
-    // Name matching (0-45 points)
-    const nameParts = personName.toLowerCase().split(' ').filter(p => p.length > 2);
-    if (nameParts.length === 0) return 0;
+    // 1. Strict Name Matching (0-40 points)
+    // We require at least TWO name parts to match for any non-anchored social profile
+    const nameParts = personName.toLowerCase().split(/\s+/).filter(p => p.length > 2);
+    if (nameParts.length < 2) return 0; // Prevent collisions on single common names
 
     let nameMatches = 0;
     nameParts.forEach(part => {
-        if (title.includes(part) || snippet.includes(part) || link.includes(part)) nameMatches++;
+        if (title.includes(part) || link.includes(part)) nameMatches++;
     });
-    score += (nameMatches / nameParts.length) * 45;
 
-    // Keywords matching (0-30 points)
-    if (keywords.length > 0) {
+    if (nameMatches < 2) return 0; // Reject if only one name part matches (e.g., "Mihir" matches but not "Doshi")
+    score += (nameMatches / nameParts.length) * 40;
+
+    // 2. Company/Identity Core Match (0-50 points) - CRITICAL for Bug 3
+    // Enforce matching for Company + Designation if markers are provided
+    if (keywords && keywords.length > 0) {
         let keywordMatches = 0;
-        keywords.forEach(keyword => {
-            if (combinedText.includes(keyword.toLowerCase())) {
-                keywordMatches++;
+        const kwList = Array.isArray(keywords) ? keywords : [keywords];
+
+        // Split markers into high-weight (Company) and medium-weight (Designation) if possible
+        kwList.forEach(kw => {
+            const lowerKw = kw.toLowerCase().trim();
+            if (combinedText.includes(lowerKw)) {
+                // Massive boost if company name matches perfectly in a social bio
+                keywordMatches += 2;
             }
         });
-        score += Math.min(keywordMatches * 15, 30);
+
+        score += Math.min(keywordMatches * 25, 50);
     }
 
-    // Location matching (0-15 points)
+    // 3. Location Matching (0-10 points)
     if (location && (combinedText.includes(location.toLowerCase()) || link.includes(location.toLowerCase()))) {
-        score += 15;
+        score += 10;
     }
 
-    // Professional indicators (0-10 points)
-    const professionalTerms = ['engineer', 'developer', 'ceo', 'founder', 'manager', 'director', 'analyst', 'designer', 'profile'];
-    const hasProfessionalTerm = professionalTerms.some(term => combinedText.includes(term));
-    if (hasProfessionalTerm) {
-        score += 10;
+    // 4. Business Page Penalty - CRITICAL for Bug 3 (The Commerce Team Global)
+    const businessPatterns = ["global", "solutions", "team", "services", "corporate", "agency", "consulting"];
+    const isLikelyBusiness = businessPatterns.some(p => link.includes(p) || title.includes(p));
+
+    // Check if the title looks like a person's name or a company name
+    const titleIsPersonal = title.includes(personName.toLowerCase());
+
+    if (isLikelyBusiness && !titleIsPersonal && !combinedText.includes("founder") && !combinedText.includes("ceo")) {
+        score -= 60; // Heavier penalty to ensure business pages are disqualified
     }
 
     return Math.round(score);

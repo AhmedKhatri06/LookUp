@@ -48,82 +48,56 @@ export function calculateImageScore(item, targetName = "", contextKeywords = [])
 
     let score = 0;
 
-    // 1. Name Match Scoring (Check title, source URL, and filename)
+    // 1. Strict Name Match Scoring (Check title, source URL, and filename)
     if (targetName) {
-        const nameParts = targetLower.split(' ').filter(p => p.length > 2);
+        const nameParts = targetLower.split(/\s+/).filter(p => p.length > 2);
+        if (nameParts.length < 2) return -100; // Reject if name is too short/ambiguous
+
         const matches = nameParts.filter(part => {
-            // Regex to ensure it's a standalone word or part of a path (common for names in URLs)
             const regex = new RegExp(`\\b${part}\\b`, 'i');
             return regex.test(title) || link.includes(part) || imageUrl.includes(part);
         }).length;
 
         if (matches === nameParts.length) {
-            score += 60; // Perfect name match (all parts)
-        } else if (matches > 0) {
+            score += 60; // Perfect name match
+        } else if (matches >= 1) {
             score += (matches / nameParts.length) * 40;
         } else {
-            score -= 30; // No name parts match at all
+            return -100; // IDENTITY BOUND: If NO name parts match, it's NOT our person.
         }
     }
 
-    // 2. Context-Aware Scoring (CRITICAL for resolving Name Collisions)
+    // 2. Identity Context (Company/Profession) - CRITICAL for Bug 2
     if (contextKeywords && contextKeywords.length > 0) {
-        const contextMatches = contextKeywords.filter(keyword => {
+        const markers = Array.isArray(contextKeywords) ? contextKeywords : [contextKeywords];
+        const contextMatches = markers.filter(keyword => {
             const kw = keyword.toLowerCase();
             return title.includes(kw) || link.includes(kw);
         }).length;
 
         if (contextMatches > 0) {
-            score += 30; // Boost for context match
+            score += 40; // High boost for matching company/profession markers
         }
     }
 
-    // 3. Platform Trust & Penalty
-    // High Trust - likely person profiles
+    // 3. Platform Trust & Identity Indicators
     if (link.includes("linkedin.com/in/")) score += 40;
     else if (link.includes("instagram.com") || link.includes("facebook.com")) score += 20;
-    else if (link.includes("twitter.com") || link.includes("x.com") || link.includes("crunchbase.com")) score += 20;
 
-    // Document Penalties - likely unrelated scans/PDFs
-    const docSites = ["archive.org", "scribd.com", "academia.edu", "researchgate.net", "slideshare.net", "issuu.com", "pdf", "book", "memo", "census"];
-    if (docSites.some(site => link.includes(site))) {
-        score -= 70;
-    }
-
-    // 4. Aspect Ratio Filter (Optimized for Square/Profile Portraits)
+    // 4. Aspect Ratio (Profile Portrait focus)
     const width = item.imageWidth || 0;
     const height = item.imageHeight || 0;
     if (width > 0 && height > 0) {
         const ratio = width / height;
-        if (ratio > 1.5) score -= 80; // Banner/Landscape (highly unlikely to be a profile shot)
-        else if (ratio < 0.4) score -= 60; // Too narrow
-        else if (ratio >= 0.8 && ratio <= 1.25) {
-            // Square/Portrait - Good for faces
-            score += 20;
-            if (title.includes("profile") || title.includes("headshot") || title.includes("photo")) {
-                score += 20;
-            }
-        }
+        if (ratio > 1.3) score -= 50; // Document/Landscape
+        else if (ratio >= 0.7 && ratio <= 1.2) score += 20; // Portrait/Square
     }
 
     // 5. Junk Keywords & Document Filtering
-    const junkKeywords = [
-        "profiles", "members", "team", "group", "directory", "staff", "faculty", "associates", "class of",
-        "stock photo", "generic", "everyone", "people named", "community", "banner", "logo", "icon",
-        "placeholder", "avatar", "default", "screenshot", "presentation", "slide", "event", "summit", "conference",
-        "pdf", "census", "record", "memo", "document", "report", "manual", "publication", "article", "gazette",
-        "town directory", "register", "graduate", "story", "rules", "film", "quarterly"
-    ];
-
-    const combinedLower = `${title} ${link} ${imageUrl}`.toLowerCase();
+    const junkKeywords = ["pdf", "census", "book", "cover", "stock", "generic", "everyone", "people named", "community", "banner", "logo", "screenshot"];
+    const combinedLower = `${title} ${link}`.toLowerCase();
     if (junkKeywords.some(kw => combinedLower.includes(kw))) {
-        score -= 60;
-    }
-
-    // 6. Face/Profile Boost
-    const profileBoosters = ["profile", "face", "headshot", "portrait", "biography", "identity"];
-    if (profileBoosters.some(kw => combinedLower.includes(kw))) {
-        score += 15;
+        score -= 80;
     }
 
     return score;
@@ -165,25 +139,10 @@ export async function searchImages(query, targetName = "", contextKeywords = [])
             .filter(item => item.score >= 10)
             .sort((a, b) => b.score - a.score);
 
-        // FALLBACK: If we filtered too aggressively, take only the best ones that AT LEAST match the name
+        // FALLBACK: Removed to avoid image pollution. Only high-confidence matches allowed.
         if (filtered.length === 0 && results.length > 0) {
-            const fallbackResults = scored
-                .filter(item => item.score > -20) // Don't take absolute junk
-                .slice(0, 3);
-
-            if (fallbackResults.length > 0) {
-                console.log(`[Image Discovery] Using limited fallback for: ${targetName}`);
-                return fallbackResults.map((item, index) => ({
-                    id: `image-fb-${index}`,
-                    title: item.title,
-                    imageUrl: item.imageUrl,
-                    thumbnailUrl: item.thumbnailUrl,
-                    sourceUrl: item.link,
-                    source: 'Google Images (Selective Fallback)',
-                    confidence: item.score
-                }));
-            }
-            return []; // Better to show nothing than wrong documents
+            console.log(`[Image Discovery] No high-confidence identity matches for: ${targetName}. Returning empty gallery to prevent pollution.`);
+            return [];
         }
 
         return filtered.map((item, index) => ({
