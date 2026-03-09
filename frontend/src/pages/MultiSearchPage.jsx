@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import "../index.css";
+import LivePreviewViewer from "../components/LivePreviewViewer";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -159,6 +160,8 @@ const MultiSearchPage = () => {
     // Stage 6: Preview Modal
     const [previewUrl, setPreviewUrl] = useState(null);
     const [previewPlatform, setPreviewPlatform] = useState("");
+    const [previewIsSocial, setPreviewIsSocial] = useState(false);
+    const [isLiveView, setIsLiveView] = useState(false);
 
     // Feedback Form State
     const [showFeedbackForm, setShowFeedbackForm] = useState(false);
@@ -574,9 +577,126 @@ const MultiSearchPage = () => {
         handleReset();
     };
 
-    const openPreview = (url, platform) => {
+    const openPreview = (url, platform, isSocial = false) => {
         setPreviewUrl(url);
         setPreviewPlatform(platform);
+        setPreviewIsSocial(isSocial);
+        setIsLiveView(isSocial); // Default to live for social, normal for others
+    };
+
+    const renderPlatformMirror = (platform, url) => {
+        const p = platform.toLowerCase();
+        const personaName = deepData?.person?.name || "Target Profile";
+
+        if (p.includes('linkedin')) {
+            return (
+                <div className="linkedin-shell animate-fade-up">
+                    <div className="linkedin-cover-placeholder">
+                        <div className="linkedin-profile-abs">
+                            <div className="linkedin-photo-circle">👤</div>
+                        </div>
+                    </div>
+                    <div className="linkedin-body">
+                        <div className="linkedin-identity">
+                            <h2>{personaName}</h2>
+                            <p className="linkedin-headline">{deepData?.person?.description || "Professional Profile on LinkedIn"}</p>
+                            <p className="linkedin-subline">{deepData?.person?.location || "Global Network"}</p>
+                        </div>
+                        <div className="linkedin-actions">
+                            <a href={url} target="_blank" rel="noreferrer" className="ln-btn-primary">View Full Profile</a>
+                            <a href={url} target="_blank" rel="noreferrer" className="ln-btn-secondary">Message</a>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        if (p.includes('facebook')) {
+            return (
+                <div className="facebook-shell">
+                    <div className="fb-header-strip">
+                        <div className="fb-logo-mock">f</div>
+                    </div>
+                    <div className="fb-profile-section animate-fade-up">
+                        <div className="fb-cover-photo"></div>
+                        <div className="fb-profile-info-row">
+                            <div className="fb-profile-pic">👤</div>
+                            <div className="fb-name-stack">
+                                <h1>{personaName}</h1>
+                                <span className="fb-friends-count">Profile Details</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ padding: '2rem', textAlign: 'center' }}>
+                        <a href={url} target="_blank" rel="noreferrer" className="premium-action-btn" style={{ maxWidth: '300px', margin: '0 auto' }}>
+                            Continue to Facebook
+                        </a>
+                    </div>
+                </div>
+            );
+        }
+
+        if (p.includes('instagram')) {
+            return (
+                <div className="instagram-shell animate-fade-up">
+                    <div className="ig-profile-header">
+                        <div className="ig-avatar-outer">
+                            <div className="ig-avatar-inner">👤</div>
+                        </div>
+                        <div className="ig-info-column">
+                            <div className="ig-username-row">
+                                <span className="ig-username">{personaName.toLowerCase().replace(/\s/g, '_')}</span>
+                                <button className="ig-follow-btn">Follow</button>
+                            </div>
+                            <div className="ig-stats-row">
+                                <div className="ig-stat"><span>1,204</span> posts</div>
+                                <div className="ig-stat"><span>852</span> followers</div>
+                                <div className="ig-stat"><span>921</span> following</div>
+                            </div>
+                            <div className="ig-bio">
+                                <h1>{personaName}</h1>
+                                <p>{deepData?.person?.location}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="ig-grid-placeholder">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => <div key={i} className="ig-grid-item">📸</div>)}
+                    </div>
+                    <div className="ig-see-full-cta">
+                        <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: '1rem' }}>See the actual profile live?</p>
+                        <a href={url} target="_blank" rel="noreferrer" className="premium-action-btn" style={{ background: 'var(--instagram-gradient)', border: 'none' }}>
+                            Open in App
+                        </a>
+                    </div>
+                </div>
+            );
+        }
+
+        // Default Fallback for other platforms
+        return (
+            <div className="iframe-fallback-overlay">
+                <div className="fallback-card">
+                    <div className="fallback-security-badge">
+                        <div className="security-icon-wrapper">🛡️</div>
+                        <span>Security Verified Preview</span>
+                    </div>
+                    <div className="fallback-body">
+                        <div className="platform-branding-large">
+                            <span className="platform-emoji-large">{getPlatformEmoji(platform)}</span>
+                            <h4>{platform} Protected Profile</h4>
+                        </div>
+                        <p className="fallback-explanation">
+                            This platform restricts embedded views. You can securely view the profile in a new window.
+                        </p>
+                        <div className="fallback-actions">
+                            <a href={url} target="_blank" rel="noreferrer" className="premium-action-btn">
+                                Open {platform} Profile
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -904,10 +1024,10 @@ const MultiSearchPage = () => {
                                             </div>
                                         )}
                                         {deepData.socials.map((social, i) => (
-                                            <a key={i} href={social.url} target="_blank" rel="noreferrer" className="social-pill-link" title={social.platform}>
+                                            <div key={i} className="social-pill-link" style={{ cursor: 'pointer' }} onClick={() => openPreview(social.url, social.platform, true)} title={social.platform}>
                                                 <span className="platform-icon">{getPlatformEmoji(social.platform)}</span>
                                                 <span className="platform-name">{social.platform}</span>
-                                            </a>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
@@ -961,13 +1081,13 @@ const MultiSearchPage = () => {
                                     </div>
                                     <div className="social-grid">
                                         {deepData.socials.map((social, i) => (
-                                            <a key={i} href={social.url} target="_blank" rel="noreferrer" className="saas-card animate-scale-in">
-                                                <div className="card-icon">🔗</div>
+                                            <div key={i} className="saas-card animate-scale-in" style={{ cursor: 'pointer' }} onClick={() => openPreview(social.url, social.platform, true)}>
+                                                <div className="card-icon">{getPlatformEmoji(social.platform)}</div>
                                                 <div className="card-body">
                                                     <div className="card-meta">{social.platform}</div>
-                                                    <div className="card-title">{social.handle || social.url}</div>
+                                                    <div className="card-title" style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{social.handle || social.url}</div>
                                                 </div>
-                                            </a>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
@@ -1030,15 +1150,48 @@ const MultiSearchPage = () => {
                 </div>
             )}
 
-            {/* Modals & Overlays */}
+            {/* Premium In-App Browser Modal */}
             {previewUrl && (
-                <div className="modal-overlay" onClick={() => setPreviewUrl(null)}>
-                    <div className="preview-modal" style={{ background: '#fff', borderRadius: 'var(--radius-xl)', width: '100%', maxWidth: '1000px', height: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }} onClick={e => e.stopPropagation()}>
-                        <div style={{ padding: '1.25rem 2rem', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 800 }}>{previewPlatform} Intelligence</span>
-                            <button onClick={() => setPreviewUrl(null)} style={{ background: '#f1f5f9', border: 'none', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', fontWeight: 700 }}>×</button>
+                <div className="modal-overlay" onClick={() => { setPreviewUrl(null); setPreviewIsSocial(false); setIsLiveView(false); }}>
+                    <div className="preview-modal-minimal animate-scale-in" onClick={e => e.stopPropagation()}>
+
+                        {/* Minimalist Header */}
+                        <div className="modal-header-minimal">
+                            <button className="minimal-back-btn" onClick={() => { setPreviewUrl(null); setPreviewIsSocial(false); setIsLiveView(false); }}>
+                                ← Back
+                            </button>
                         </div>
-                        <iframe src={previewUrl} style={{ flex: 1, border: 'none' }} title="Preview" />
+
+                        {/* Intelligence Container */}
+                        <div className="modal-iframe-container" style={{ background: previewIsSocial && !isLiveView ? 'inherit' : '#fff' }}>
+                            {(!previewIsSocial || isLiveView) ? (
+                                previewIsSocial ? (
+                                    <LivePreviewViewer
+                                        url={previewUrl}
+                                        onOpenOriginal={() => window.open(previewUrl, '_blank')}
+                                    />
+                                ) : (
+                                    <iframe
+                                        src={previewUrl}
+                                        className="preview-iframe iframe-blend"
+                                        title="Intelligence Preview"
+                                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                                    />
+                                )
+                            ) : (
+                                <div className="mirror-content-scrollable">
+                                    {renderPlatformMirror(previewPlatform, previewUrl)}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Minimalist Footer */}
+                        <div className="modal-footer-minimal">
+                            <button className="minimal-open-original-btn" onClick={() => window.open(previewUrl, '_blank')}>
+                                Open Original Page
+                            </button>
+                        </div>
+
                     </div>
                 </div>
             )}

@@ -12,6 +12,8 @@ import mongoose from "mongoose";
 import multiSearchRoute from "./routes/multiSearch.js";
 import internetSearch from "./routes/internetSearch.js";
 import nexaSearchRoute from "./routes/nexaSearch.js";
+import proxyRoute from "./routes/proxy.js";
+import previewRoute from "./routes/preview.js";
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -25,6 +27,8 @@ mongoose.connect(process.env.MONGO_URI)
 
 app.use("/api/multi-search", multiSearchRoute);
 app.use("/api/nexa-search", nexaSearchRoute);
+app.use("/api/proxy", proxyRoute);
+app.use("/api/preview", previewRoute);
 app.use("/images", express.static(path.join(process.cwd(), "images")));
 app.use("/api/search/internet", internetSearch);
 app.get("/", (req, res) => {
