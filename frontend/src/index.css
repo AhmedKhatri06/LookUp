@@ -3188,6 +3188,8 @@ body {
   background: #ffffff;
   width: 90vw;
   height: 90vh;
+  /* Fallback for browsers that do not support dvh */
+  height: 90dvh;
   max-width: 1400px;
   border-radius: 12px;
   display: flex;
@@ -3198,13 +3200,16 @@ body {
 }
 
 .modal-header-minimal {
-  height: 60px;
-  padding: 0 20px;
+  height: calc(60px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 20px 0 20px;
   display: flex;
   align-items: center;
   border-bottom: 1px solid #e5e7eb;
   background: #f9fafb;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 9999;
 }
 
 .minimal-back-btn {
@@ -3260,6 +3265,8 @@ body {
   .preview-modal-minimal {
     width: 100vw;
     height: 100vh;
+    /* Fallback */
+    height: 100dvh;
     max-width: none;
     border-radius: 0;
     border: none;

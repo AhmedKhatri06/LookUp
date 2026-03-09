@@ -14,6 +14,8 @@ const getPlatformEmoji = (platform) => {
     if (p.includes('twitter') || p.includes('x')) return '🐦';
     if (p.includes('instagram')) return '📸';
     if (p.includes('facebook')) return '👥';
+    if (p.includes('wikipedia')) return '📚';
+    if (p.includes('britannica')) return '🏛️';
     return '🔗';
 };
 
@@ -578,6 +580,10 @@ const MultiSearchPage = () => {
     };
 
     const openPreview = (url, platform, isSocial = false) => {
+        if (platform && (platform.toLowerCase() === 'wikipedia' || platform.toLowerCase() === 'britannica')) {
+            window.open(url, '_blank', 'noopener,noreferrer');
+            return;
+        }
         setPreviewUrl(url);
         setPreviewPlatform(platform);
         setPreviewIsSocial(isSocial);

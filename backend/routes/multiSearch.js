@@ -77,6 +77,36 @@ function rankResults(results, query) {
  * @param {string} query
  * @param {boolean} simpleMode - If true, does a broad Google search without social filters.
  */
+
+/**
+ * Perform a direct query to Wikipedia OpenSearch API to find a relevant page
+ * @param {string} query 
+ * @returns {Object|null} Social profile object for Wikipedia or null
+ */
+export async function searchWikipedia(query) {
+    if (!query) return null;
+    try {
+        const response = await axios.get(`https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=1&namespace=0&format=json`);
+        const data = response.data;
+        if (data && data[1] && data[1].length > 0 && data[3] && data[3].length > 0) {
+            const title = data[1][0];
+            const url = data[3][0];
+            return {
+                platform: 'Wikipedia',
+                url: url,
+                username: title,
+                handle: title,
+                confidence: 'high',
+                identityScore: 100,
+                source: 'Wikipedia API'
+            };
+        }
+    } catch (err) {
+        console.error("[Deep Search] Wikipedia API fetch failed:", err.message);
+    }
+    return null;
+}
+
 export async function performSearch(query, simpleMode = false) {
     const normQuery = normalize(query);
 
@@ -769,11 +799,12 @@ router.post("/deep", async (req, res) => {
 
         // EXECUTION: Perform both strict and broad sweeps in parallel (Serper is fast)
         // EXECUTION: Perform sweeps with optimized query volume
-        const [socialStrict, socialBroad, contextBroad, initialImageResults] = await Promise.all([
+        const [socialStrict, socialBroad, contextBroad, initialImageResults, wikiResult] = await Promise.all([
             performSearch(socialQueryStrict, true).catch(() => []),
             performSearch(socialQueryBroad, true).catch(() => []),
             performSearch(contextQueryBroad, true).catch(() => []),
-            searchImages(imageQuery, name, contextKeywordsList).catch(() => [])
+            searchImages(imageQuery, name, contextKeywordsList).catch(() => []),
+            searchWikipedia(name).catch(() => null)
         ]);
 
         // Merge and deduplicate results, favoring strict matches
@@ -811,6 +842,14 @@ router.post("/deep", async (req, res) => {
                     });
                 }
             });
+        }
+
+        // Add Wikipedia result to socialProfiles if found and not duplicate
+        if (wikiResult) {
+            const normUrl = wikiResult.url.split('?')[0].replace(/\/$/, '').toLowerCase();
+            if (!socialProfiles.some(sp => sp.url.split('?')[0].replace(/\/$/, '').toLowerCase() === normUrl)) {
+                socialProfiles.push(wikiResult);
+            }
         }
 
         console.log(`[Deep Search] Social profiles found: ${socialProfiles.length} `);

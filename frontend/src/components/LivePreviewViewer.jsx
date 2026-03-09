@@ -83,10 +83,10 @@ const LivePreviewViewer = ({ url, onOpenOriginal }) => {
                         <div className="auth-blocked-overlay animate-scale-in">
                             <div className="auth-blocked-content">
                                 <div className="auth-blocked-icon">🔒</div>
-                                <h3>Authentication Restricted</h3>
-                                <p style={{ fontWeight: 500, color: '#374151' }}>Login interactions are not supported in preview mode.</p>
-                                <p className="auth-subtext" style={{ marginTop: '5px' }}>Please open the page in a new tab to continue.</p>
-                                <button onClick={onOpenOriginal} className="open-original-btn premium-btn" style={{ marginTop: '10px' }}>
+                                <h3 style={{ marginBottom: '15px' }}>Login interaction detected</h3>
+                                <p style={{ fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Login interactions cannot be completed inside preview mode.</p>
+                                <p className="auth-subtext" style={{ marginTop: '0', marginBottom: '20px' }}>Please open the original website to continue.</p>
+                                <button onClick={onOpenOriginal} className="open-original-btn premium-btn">
                                     Open Original Page
                                 </button>
                             </div>
