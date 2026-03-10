@@ -11,7 +11,7 @@ import { parseSocialProfile } from "../services/socialProfileParser.js";
 import { detectInputType, normalizePhoneNumber, extractContacts, normalizeName } from "../utils/searchHelper.js";
 import { searchCSVs } from "../services/csvSearchService.js";
 import { searchImages, calculateImageScore } from "../services/internetSearch.js";
-import { verifyFaceSimilarity } from "../services/faceVerificationService.js";
+import { verifyFaceSimilarity, detectHumanFace } from "../services/faceVerificationService.js";
 
 dotenv.config();
 
@@ -396,29 +396,44 @@ router.post("/identify", async (req, res) => {
         const inputType = detectInputType(name);
         console.log(`[Identify] Detected Type: ${inputType} | Query: ${name} | Keyword: ${keywords} | Number: ${number} `);
 
-        // 1. Search Local Sources (Priority 1)
-        // If 'number' is provided, we prioritize searching by that in local DBs
         const searchQuery = number || name;
         const searchType = number ? "PHONE" : inputType;
 
-        console.log(`[Identify] Searching CSVs for: ${searchQuery}`);
-        const csvResults = await searchCSVs(searchQuery, searchType);
-        console.log(`[Identify] CSV Results: ${csvResults.length}`);
-
-        console.log(`[Identify] Searching SQLite for: ${searchQuery}`);
-        const sqliteResults = sqliteSearch(searchQuery);
-        console.log(`[Identify] SQLite Results: ${sqliteResults.length}`);
-
-        let mongoResults = [];
-        try {
-            console.log(`[Identify] Searching MongoDB for: ${searchQuery}`);
-            mongoResults = await Document.find({
-                text: { $regex: searchQuery, $options: "i" }
-            }).limit(10).lean();
-            console.log(`[Identify] MongoDB Results: ${mongoResults.length}`);
-        } catch (dbErr) {
-            console.warn("[MongoDB] Identify failed:", dbErr.message);
+        // Prepare internet query early constraint
+        let internetQuery = "";
+        if (inputType === "NAME") {
+            const profileSites = [
+                "site:linkedin.com/in/", "site:instagram.com", "site:facebook.com",
+                "site:twitter.com", "site:x.com", "site:crunchbase.com/person/"
+            ].join(" OR ");
+            internetQuery = `${name} ${location || ""} ${keywords || ""} (${profileSites})`.trim();
+        } else {
+            internetQuery = `"${name}" OR "${normalizePhoneNumber(name)}"`;
         }
+
+        console.log(`[Identify] Executing parallel searches for: ${searchQuery}`);
+
+        // 1. Parallel execution for local storage and internet
+        const [csvResults, sqliteResults, dbResults, internetRes] = await Promise.all([
+            searchCSVs(searchQuery, searchType).catch(e => { console.error("[CSV] err:", e.message); return []; }),
+            Promise.resolve().then(() => sqliteSearch(searchQuery)).catch(e => { console.error("[SQLite] err:", e.message); return []; }),
+            Document.find({ text: { $regex: searchQuery, $options: "i" } }).limit(10).lean().catch(e => { console.warn("[MongoDB] Identify failed:", e.message); return []; }),
+            (async () => {
+                let sRes = await performSearch(internetQuery, true).catch(e => []);
+                if ((!sRes || sRes.length === 0) && inputType === "NAME") {
+                    console.log("[Identify] Filtered search yielded no results, falling back to simple search.");
+                    const simpleQuery = `${name} ${location || ""} ${keywords || ""} `.trim();
+                    sRes = await performSearch(simpleQuery, true).catch(e => []);
+                }
+                return sRes;
+            })()
+        ]);
+
+        console.log(`[Identify] Results -> CSV: ${csvResults?.length || 0} | SQLite: ${sqliteResults?.length || 0} | Mongo: ${dbResults?.length || 0} | Internet: ${internetRes?.length || 0}`);
+
+        let mongoResults = dbResults || [];
+        let searchResults = internetRes || [];
+        let internetCandidates = [];
 
         // Map local data to a common candidate structure
         const localCandidates = [
@@ -465,29 +480,6 @@ router.post("/identify", async (req, res) => {
                 keywordMatched: keywords || ""
             }))
         ];
-
-        // 2. Search Internet (Always attempt to find web identities)
-        let internetCandidates = [];
-        let internetQuery = "";
-        if (inputType === "NAME") {
-            const profileSites = [
-                "site:linkedin.com/in/", "site:instagram.com", "site:facebook.com",
-                "site:twitter.com", "site:x.com", "site:crunchbase.com/person/"
-            ].join(" OR ");
-            internetQuery = `${name} ${location || ""} ${keywords || ""} (${profileSites})`.trim();
-        } else {
-            // PHONE search - look for the number itself on the web
-            internetQuery = `"${name}" OR "${normalizePhoneNumber(name)}"`;
-        }
-
-        let searchResults = await performSearch(internetQuery, true);
-
-        // Fallback: If no results for filtered search, try simple search
-        if ((!searchResults || searchResults.length === 0) && inputType === "NAME") {
-            console.log("[Identify] Filtered search yielded no results, falling back to simple search.");
-            const simpleQuery = `${name} ${location || ""} ${keywords || ""} `.trim();
-            searchResults = await performSearch(simpleQuery, true);
-        }
 
         console.time("[AI] Identification Phase");
         if (searchResults && searchResults.length > 0) {
@@ -856,11 +848,23 @@ router.post("/deep", async (req, res) => {
         socialProfiles.forEach(s => console.log(`  → ${s.platform}: ${s.username} (${s.url})[score: ${s.identityScore}]`));
 
         // --- Layer 1: Anchor Selection (Highest Confidence Image) ---
-        let identityAnchor = person.image || person.imageUrl || null;
+        let identityAnchor = null;
+        const potentialAnchors = [];
         const linkedInProfile = socialProfiles.find(s => s.platform.toLowerCase() === 'linkedin');
 
-        if (linkedInProfile && linkedInProfile.thumbnail) {
-            identityAnchor = linkedInProfile.thumbnail;
+        // Prefer LinkedIn thumbnail as the anchor, fallback to existing local image
+        if (linkedInProfile && linkedInProfile.thumbnail) potentialAnchors.push(linkedInProfile.thumbnail);
+        if (person.image || person.imageUrl) potentialAnchors.push(person.image || person.imageUrl);
+
+        // Validate that the anchor actually contains a human face
+        for (const anchorUrl of potentialAnchors) {
+            const hasFace = await detectHumanFace(anchorUrl);
+            if (hasFace) {
+                identityAnchor = anchorUrl;
+                break;
+            } else {
+                console.log(`[Deep Search] Rejected anchor (no clear human face): ${anchorUrl}`);
+            }
         }
 
         console.log(`[Deep Search] Identity Anchor elected: ${identityAnchor ? identityAnchor.substring(0, 50) + '...' : 'NONE'}`);
@@ -931,7 +935,7 @@ router.post("/deep", async (req, res) => {
             }
         });
 
-        // --- Layer 2: Face Similarity Filtering ---
+        // --- Layer 2: Face Similarity & Detection Filtering ---
         const finalGallery = [];
         const seenUrls = new Set();
         const verificationList = candidateImages
@@ -939,47 +943,50 @@ router.post("/deep", async (req, res) => {
             .filter(img => img.score >= 10 || img.type === 'profile')
             .slice(0, 8); // Verify top 8 matches to ensure quality and speed
 
-        if (identityAnchor && verificationList.length > 0) {
-            console.log(`[Deep Search] Starting Layer 2: Face Similarity Filtering for ${verificationList.length} images...`);
-            const verificationPromises = verificationList.map(async (img) => {
-                try {
-                    const currentUrl = img.url || img.imageUrl;
-                    if (currentUrl === identityAnchor) return { ...img, similarity: 100 };
+        console.log(`[Deep Search] Starting Layer 2: Face Similarity Filtering for ${verificationList.length} images...`);
+        const verificationPromises = verificationList.map(async (img) => {
+            try {
+                const currentUrl = img.url || img.imageUrl;
 
-                    // LAYER 2: Face Similarity Gate
+                // STRICT GATE 1: Does it have a human face?
+                const hasFace = await detectHumanFace(currentUrl);
+                if (!hasFace) {
+                    console.log(`[DeepSearch] Blocking image (no human face): ${currentUrl}`);
+                    return { ...img, isBlocked: true, similarity: 0 };
+                }
+
+                if (identityAnchor) {
+                    if (currentUrl === identityAnchor) return { ...img, similarity: 100, isBlocked: false };
+
+                    // STRICT GATE 2: Face Similarity
                     const similarity = await verifyFaceSimilarity(identityAnchor, currentUrl);
 
-                    // CRITICAL: Block if similarity is below threshold
+                    // balanced threshold check
                     if (similarity < 80) {
                         console.log(`[DeepSearch] Blocking non-matching face: ${currentUrl} (Score: ${similarity})`);
                         return { ...img, isBlocked: true, similarity };
                     } else {
                         return { ...img, similarity, isBlocked: false };
                     }
-                } catch (err) {
-                    console.error(`[DeepSearch] Image verification failed for ${img.url}:`, err.message);
-                    return { ...img, isBlocked: true, similarity: 0 };
+                } else {
+                    // Fallback if no anchor exists but it DOES have a human face
+                    return { ...img, similarity: 50, isBlocked: false };
                 }
-            });
+            } catch (err) {
+                console.error(`[DeepSearch] Image verification failed for ${img.url}:`, err.message);
+                return { ...img, isBlocked: true, similarity: 0 };
+            }
+        });
 
-            const verifiedImages = await Promise.all(verificationPromises);
-            verifiedImages.forEach(img => {
-                const url = img.url || img.imageUrl;
-                if (!img.isBlocked && url && !seenUrls.has(url)) {
-                    seenUrls.add(url);
-                    finalGallery.push(img);
-                }
-            });
-            console.log(`[Deep Search] Layer 2 complete. ${finalGallery.length} images passed filter.`);
-        } else {
-            // Fallback if no anchor exists
-            verificationList.slice(0, 10).forEach(img => {
-                if (!seenUrls.has(img.url)) {
-                    seenUrls.add(img.url);
-                    finalGallery.push(img);
-                }
-            });
-        }
+        const verifiedImages = await Promise.all(verificationPromises);
+        verifiedImages.forEach(img => {
+            const url = img.url || img.imageUrl;
+            if (!img.isBlocked && url && !seenUrls.has(url)) {
+                seenUrls.add(url);
+                finalGallery.push(img);
+            }
+        });
+        console.log(`[Deep Search] Layer 2 complete. ${finalGallery.length} images passed filter.`);
 
         // Determine Primary Image
         let primaryImageObj = null;

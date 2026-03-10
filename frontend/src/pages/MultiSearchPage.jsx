@@ -4,7 +4,7 @@ import LivePreviewViewer from "../components/LivePreviewViewer";
 import AuthModal from "../components/AuthModal";
 import { AuthContext } from "../context/AuthContext";
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 
 
@@ -240,10 +240,10 @@ const MultiSearchPage = () => {
                         const remaining = target - prev;
                         // Move 5% of the remaining distance or at least a tiny random amount
                         const step = Math.max(remaining * 0.05, Math.random() * 0.1);
-                        return prev + step;
+                        return Math.min(prev + step, 99.9);
                     }
                     // If somehow at or past target, move by tiny micro-increments
-                    return prev + 0.01;
+                    return Math.min(prev + 0.01, 99.9);
                 });
             }, 200);
         } else {

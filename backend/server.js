@@ -15,6 +15,7 @@ import nexaSearchRoute from "./routes/nexaSearch.js";
 import proxyRoute from "./routes/proxy.js";
 import previewRoute from "./routes/preview.js";
 import authRoute from "./routes/auth.js";
+import { initCSVService } from "./services/csvSearchService.js";
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -25,6 +26,9 @@ app.use(express.json());
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected"))
   .catch(err => console.error("MongoDB Error:", err));
+
+// Start initialization of in-memory caching
+initCSVService().catch(err => console.error("CSV Init Error:", err));
 
 app.use("/api/multi-search", multiSearchRoute);
 app.use("/api/nexa-search", nexaSearchRoute);

@@ -29,15 +29,18 @@ export async function verifyFaceSimilarity(anchorUrl, candidateUrl) {
 
         if (!anchorData || !candidateData) return 0;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         const prompt = `
-            Task: Compare the faces in these two images.
+            Task: Compare the faces in these two images to determine if they are the same person.
             Image 1: The verified identity anchor.
             Image 2: A candidate image for the gallery.
             
             Are these the same person? 
-            Consider facial features, bone structure, and eyes. Ignore age differences, lighting, or background.
+            - Carefully analyze facial features, bone structure, and eye spacing.
+            - Account for natural variations such as aging, lighting, facial hair, and expression changes.
+            - If Image 2 is a group photo, you must verify that at least ONE person in the group is a match to the person in Image 1.
+            - Be accurate but fair. If the faces are clearly different people, return false and a low confidence score (< 50).
             
             Return a JSON object:
             {
@@ -66,6 +69,59 @@ export async function verifyFaceSimilarity(anchorUrl, candidateUrl) {
     } catch (error) {
         console.error("[FaceVerification] Error:", error.message);
         return 0;
+    }
+}
+
+/**
+ * Detects if a given image contains a clear human face.
+ * @param {string} imageUrl URL of the image to check
+ * @returns {Promise<boolean>} True if a human face is detected, false otherwise.
+ */
+export async function detectHumanFace(imageUrl) {
+    if (!process.env.GEMINI_API_KEY) {
+        console.warn("[FaceVerification] Missing GEMINI_API_KEY. Assuming face exists fallback.");
+        return true;
+    }
+
+    if (!imageUrl) return false;
+
+    try {
+        const imageData = await fetchImageAsBase64(imageUrl);
+        if (!imageData) return false;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        const prompt = `
+            Task: Analyze this image and determine if it contains a clear, identifiable human face.
+            Ignore company logos, cartoons, abstract art, text-heavy screenshots, or landscapes without clear faces.
+            
+            Return a simple JSON object:
+            {
+                "hasHumanFace": boolean,
+                "confidence": number (0-100)
+            }
+        `;
+
+        const result = await model.generateContent([
+            prompt,
+            { inlineData: { data: imageData, mimeType: "image/jpeg" } }
+        ]);
+
+        const responseText = result.response.text();
+        const jsonMatch = responseText.match(/\{.*\}/s);
+
+        if (jsonMatch) {
+            const data = JSON.parse(jsonMatch[0]);
+            if (!data.hasHumanFace) {
+                console.log(`[FaceVerification] No human face detected in: ${imageUrl}`);
+            }
+            return data.hasHumanFace && data.confidence > 70;
+        }
+
+        return false;
+    } catch (error) {
+        console.error("[FaceVerification] Face detection error:", error.message);
+        return false;
     }
 }
 
