@@ -4,14 +4,18 @@ import MultiSearchPage from "./pages/MultiSearchPage";
 import NexaSearchPage from "./pages/NexaSearchPage";
 
 
+import { AuthProvider } from "./context/AuthContext";
+
 function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<MultiSearchPage />} />
-        <Route path="/nexa-search" element={<NexaSearchPage />} />
-      </Routes>
-    </Router>
+    <AuthProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<MultiSearchPage />} />
+          <Route path="/nexa-search" element={<NexaSearchPage />} />
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
 

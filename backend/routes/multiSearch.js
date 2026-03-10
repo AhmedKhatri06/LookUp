@@ -5,7 +5,7 @@ import FormInfo from "../models/FormInfo.js";
 import SearchCache from "../models/SearchCache.js";
 import Document from "../models/Document.js";
 import { sqliteSearch } from "../db/sqlite.js";
-import { identifyPeople } from "../services/aiService.js";
+import { identifyPeople, generateText } from "../services/aiService.js";
 import { extractSocialAccounts } from "../services/socialMediaService.js";
 import { parseSocialProfile } from "../services/socialProfileParser.js";
 import { detectInputType, normalizePhoneNumber, extractContacts, normalizeName } from "../utils/searchHelper.js";
@@ -1010,6 +1010,30 @@ router.post("/deep", async (req, res) => {
             .map(r => ({ title: r.title, snippet: r.text, url: r.url, provider: r.provider }))
             .slice(0, 15);
 
+        // 7. Generate AI Summary
+        let aiSummary = "";
+        try {
+            console.time("[AI] Summary Generation");
+            const summaryParts = [];
+            if (person.description) summaryParts.push(`Description: ${person.description}`);
+            if (person.location) summaryParts.push(`Location: ${person.location}`);
+            if (localResults.length > 0) {
+                summaryParts.push(`Archive Data: ${localResults.map(r => r.text).join(" | ").substring(0, 500)}`);
+            }
+            if (socialProfiles.length > 0) {
+                summaryParts.push(`Socials: ${socialProfiles.map(s => `${s.platform} (${s.url})`).join(", ")}`);
+            }
+            if (articles.length > 0) {
+                summaryParts.push(`Web Mentions: ${articles.map(a => a.title).join(" | ").substring(0, 500)}`);
+            }
+
+            const prompt = `Synthesize a brief, professional summary (2-3 sentences max) for ${name} based on the following data points:\n${summaryParts.join("\n")}\nFocus on their professional identity, notable associations, and key digital footprint. Do not use filler text.`;
+            aiSummary = await generateText(prompt);
+            console.timeEnd("[AI] Summary Generation");
+        } catch (summaryErr) {
+            console.error("[Deep Search] AI Summary generation failed:", summaryErr.message);
+        }
+
         res.json({
             person: {
                 ...person,
@@ -1017,7 +1041,8 @@ router.post("/deep", async (req, res) => {
                 primaryImage: primaryImageObj ? (primaryImageObj.isBlocked ? primaryImageObj.thumbnail : primaryImageObj.original) : "",
                 primaryImageObj: primaryImageObj,
                 phoneNumbers: [...new Set([...localPhones, ...webPhones])],
-                emails: [...new Set([...localEmails, ...webEmails])]
+                emails: [...new Set([...localEmails, ...webEmails])],
+                aiSummary: aiSummary
             },
             localData: localResults,
             socials: socialProfiles,

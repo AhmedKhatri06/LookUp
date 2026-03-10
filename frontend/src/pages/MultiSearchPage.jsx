@@ -1,6 +1,8 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useContext } from "react";
 import "../index.css";
 import LivePreviewViewer from "../components/LivePreviewViewer";
+import AuthModal from "../components/AuthModal";
+import { AuthContext } from "../context/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -176,6 +178,11 @@ const MultiSearchPage = () => {
     const [revealedNumbers, setRevealedNumbers] = useState(new Set());
     const [expandedCards, setExpandedCards] = useState(new Set());
     const [overflowingCards, setOverflowingCards] = useState(new Set());
+
+    const { user, logout } = useContext(AuthContext);
+    const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+    // B-001: Extract Search Parameters Automatically=
     const cardRefs = useRef({});
 
     const checkCardOverflows = useCallback(() => {
@@ -728,7 +735,16 @@ const MultiSearchPage = () => {
                 <div className="nav-right">
                     <div className="nav-actions">
                         <button className="nav-btn secondary desktop-only">Support</button>
-                        <button className="nav-btn primary">Account</button>
+                        {user ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                <span style={{ color: 'var(--text-main)', fontSize: '0.9rem', fontWeight: '600' }}>
+                                    Hi, {user.name.split(' ')[0]}
+                                </span>
+                                <button className="nav-btn primary" onClick={logout}>Log Out</button>
+                            </div>
+                        ) : (
+                            <button className="nav-btn primary" onClick={() => setIsAuthModalOpen(true)}>Log In / Sign Up</button>
+                        )}
                     </div>
                 </div>
             </nav>
@@ -1036,6 +1052,7 @@ const MultiSearchPage = () => {
                                             </div>
                                         ))}
                                     </div>
+
                                 </div>
                             </div>
                         </section>
@@ -1137,6 +1154,18 @@ const MultiSearchPage = () => {
                                         <span className="category-count">0 Records</span>
                                     </div>
                                     <div className="empty-state">No internal archive data available.</div>
+                                </div>
+                            )}
+
+                            {/* AI Synthesis */}
+                            {deepData.person.aiSummary && (
+                                <div className="category-section animate-fade-up">
+                                    <div className="category-header">
+                                        <h3 className="category-title">✨ AI Synthesis</h3>
+                                    </div>
+                                    <div className="ai-summary-block" style={{ padding: '1.5rem', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', borderLeft: '4px solid var(--accent)', color: 'var(--text-main)', lineHeight: '1.6', fontSize: '1rem' }}>
+                                        {deepData.person.aiSummary}
+                                    </div>
                                 </div>
                             )}
                         </section>
@@ -1256,6 +1285,7 @@ const MultiSearchPage = () => {
                 </div>
             )}
 
+            <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
         </div>
     );
 };
