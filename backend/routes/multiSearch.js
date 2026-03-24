@@ -11,8 +11,9 @@ import { parseSocialProfile } from "../services/socialProfileParser.js";
 import { detectInputType, normalizePhoneNumber, extractContacts, normalizeName } from "../utils/searchHelper.js";
 import { searchCSVs } from "../services/csvSearchService.js";
 import { searchImages, calculateImageScore, searchWithDorks } from "../services/internetSearch.js";
-import { verifyFaceSimilarity, detectHumanFace, batchWithPacing } from "../services/faceVerificationService.js";
+import { verifyFaceSimilarity, detectHumanFace, batchWithPacing } from "../services/faceVerification.js";
 import { generateDorks, generatePivotDorks, generateDocumentDorks } from "../services/dorkingService.js";
+import { matchInstagramProfiles } from "../services/instagramMatcher.js";
 
 dotenv.config();
 
@@ -984,6 +985,32 @@ router.post("/deep", async (req, res) => {
         const queryWords = name.split(' ');
         let socialProfiles = extractSocialAccounts(allSearchItems, name, queryWords, cleanLocation, targetEmails, targetPhones);
 
+        // --- Integrated Instagram Matcher (OSINT enhancement) ---
+        const instagramCandidates = matchInstagramProfiles(allSearchItems, {
+            name,
+            company: person.company,
+            location: cleanLocation,
+            email: targetEmails[0] || ''
+        });
+
+        // Merge Instagram candidates if they are higher confidence or missing
+        instagramCandidates.forEach(ig => {
+            const igUrl = ig.url.toLowerCase().replace(/\/$/, '');
+            const existingIndex = socialProfiles.findIndex(sp => sp.url.toLowerCase().replace(/\/$/, '') === igUrl);
+            
+            if (existingIndex === -1 && ig.score >= 30) {
+                console.log(`  [Instagram Matcher] Found new candidate: ${ig.username} (Score: ${ig.score})`);
+                socialProfiles.push(ig);
+            } else if (existingIndex !== -1) {
+                // If existing, update confidence if the matcher score is better
+                if (ig.score > socialProfiles[existingIndex].identityScore) {
+                    console.log(`  [Instagram Matcher] Upgrading score for ${ig.username}: ${socialProfiles[existingIndex].identityScore} -> ${ig.score}`);
+                    socialProfiles[existingIndex].identityScore = ig.score;
+                    socialProfiles[existingIndex].confidence = ig.confidence.toLowerCase();
+                }
+            }
+        });
+
         // CRITICAL FIX: Merge social accounts ALREADY present in the candidate/person data
         // This ensures that if the user clicks a card with a link, it shows up in the dashboard
         if (person.socials && Array.isArray(person.socials)) {
@@ -1031,6 +1058,21 @@ router.post("/deep", async (req, res) => {
                     // Run second pass of discovery with knownHandle anchor
                     const phase2Profiles = extractSocialAccounts(pivotResults, name, queryWords, cleanLocation, targetEmails, targetPhones, {
                         knownHandle: coreProfile.username
+                    });
+
+                    // --- Integrated Instagram Matcher (Pivot enhancement) ---
+                    const pivotIgCandidates = matchInstagramProfiles(pivotResults, {
+                        name,
+                        company: person.company,
+                        location: cleanLocation,
+                        email: targetEmails[0] || ''
+                    });
+
+                    pivotIgCandidates.forEach(ig => {
+                        const existsInPhase2 = phase2Profiles.some(p2 => p2.url.toLowerCase().replace(/\/$/, '') === ig.url.toLowerCase().replace(/\/$/, ''));
+                        if (!existsInPhase2 && ig.score >= 30) {
+                            phase2Profiles.push(ig);
+                        }
                     });
 
                     // Merge and deduplicate

@@ -814,7 +814,7 @@ const LookUpPage = () => {
                                 <span style={{ color: 'var(--text-main)', fontSize: '0.9rem', fontWeight: '600' }}>
                                     Hi, {user.name.split(' ')[0]}
                                 </span>
-                                <button className="nav-btn primary" onClick={logout}>Log Out</button>
+                                <button className="nav-btn primary" onClick={logout}>Account</button>
                             </div>
                         ) : (
                             <button className="nav-btn primary" onClick={() => setIsAuthModalOpen(true)}>Log In / Sign Up</button>
@@ -841,18 +841,34 @@ const LookUpPage = () => {
                     <div className="home-view">
                         <div className="hero-box">
                             <div className={`hero-search-container animate-fade-up ${searchMode === SEARCH_MODES.PHONE ? 'phone-mode' : ''}`}>
-                                <div className="search-icon-left" style={{ padding: '0 12px', color: 'var(--text-muted)' }}>
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <circle cx="11" cy="11" r="8"></circle>
-                                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                                    </svg>
+                                <div className="mode-switcher">
+                                    <button 
+                                        className={`mode-btn ${searchMode === SEARCH_MODES.GENERAL ? 'active' : ''}`}
+                                        data-mode="search"
+                                        onClick={() => setSearchMode(SEARCH_MODES.GENERAL)}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="11" cy="11" r="8"></circle>
+                                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                        </svg>
+                                    </button>
+                                    <button 
+                                        className={`mode-btn ${searchMode === SEARCH_MODES.PHONE ? 'active' : ''}`}
+                                        data-mode="phone"
+                                        onClick={() => setSearchMode(SEARCH_MODES.PHONE)}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+                                            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                                        </svg>
+                                    </button>
                                 </div>
 
                                 {searchMode === SEARCH_MODES.PHONE && (
                                     <div className="country-selector-box" ref={countryDropdownRef}>
                                         <div className="phone-prefix" onClick={() => setShowCountryDropdown(!showCountryDropdown)}>
                                             <span className="flag">{selectedCountry.flag}</span>
-                                            <span className="prefix">{selectedCountry.prefix}</span>
+                                            <span className="prefix" style={{ fontSize: '0.9rem' }}>{selectedCountry.prefix}</span>
                                             <span className="chevron">▼</span>
                                         </div>
                                         {showCountryDropdown && (
@@ -886,41 +902,11 @@ const LookUpPage = () => {
                                     onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
                                     autoFocus
                                 />
-                                <button
-                                    className={`keypad-toggle-btn ${searchMode === SEARCH_MODES.PHONE ? 'active' : ''}`}
-                                    onClick={() => setSearchMode(prev => prev === SEARCH_MODES.GENERAL ? SEARCH_MODES.PHONE : SEARCH_MODES.GENERAL)}
-                                    title="Search by Phone Number"
-                                    style={{
-                                        background: 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        padding: '8px',
-                                        marginRight: '8px',
-                                        color: searchMode === SEARCH_MODES.PHONE ? 'var(--accent)' : 'var(--text-muted)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        borderRadius: 'var(--radius-md)',
-                                        transition: 'all 0.2s ease'
-                                    }}
-                                >
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <rect x="4" y="2" width="16" height="20" rx="3"></rect>
-                                        <path d="M8 7h.01"></path>
-                                        <path d="M12 7h.01"></path>
-                                        <path d="M16 7h.01"></path>
-                                        <path d="M8 12h.01"></path>
-                                        <path d="M12 12h.01"></path>
-                                        <path d="M16 12h.01"></path>
-                                        <path d="M8 17h.01"></path>
-                                        <path d="M12 17h.01"></path>
-                                        <path d="M16 17h.01"></path>
-                                    </svg>
-                                </button>
                                 <button className="hero-search-btn" onClick={() => handleIdentify()}>
                                     Run Intelligence
                                 </button>
                             </div>
+
                             <span className="hero-tag animate-fade-up">Unified Intelligence Platform</span>
                             <h1 className="hero-title animate-fade-up">High-performance data intelligence</h1>
                             <div className="trust-indicators animate-fade-up">
@@ -994,8 +980,8 @@ const LookUpPage = () => {
 
                 {/* 2. Selecting View (Structured Candidates) */}
                 {stage === STAGES.SELECTING && (
-                    <div className="selecting-view">
-                        <div className="animate-fade-up" style={{ marginBottom: '2rem' }}>
+                    <div className="selecting-view animate-fade-up">
+                        <div style={{ marginBottom: '2rem' }}>
                             <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800 }}>Potential intel matches</h2>
                         </div>
                         <div className="candidates-grid">

@@ -1,5 +1,6 @@
 import Groq from "groq-sdk";
 import dotenv from "dotenv";
+import { ollamaGenerateText } from "./localSummary.js";
 
 dotenv.config();
 
@@ -128,21 +129,7 @@ ${JSON.stringify(searchResults, null, 2)}
  * @returns {Promise<string>}
  */
 export const generateText = async (prompt) => {
-    if (!process.env.GROQ_API_KEY) {
-        console.error("GROQ_API_KEY is missing in environment variables.");
-        throw new Error("AI Service configuration error");
-    }
-
-    try {
-        const timeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Groq API Timeout (generateText)")), 25000)
-        );
-
-        const groqCall = groq.chat.completions.create({
-            messages: [
-                {
-                    role: "system",
-                    content: `You are a senior intelligence research analyst producing professional dossier summaries.
+    const SUMMARY_SYSTEM_PROMPT = `You are a senior intelligence research analyst producing professional dossier summaries.
 
 Your task is to synthesize all available data into a comprehensive, structured profile summary.
 
@@ -155,8 +142,36 @@ GUIDELINES:
 - Use specific facts from the data. Never fabricate details not present in the source material.
 - Reference data sources naturally (e.g., "LinkedIn presence indicates...", "Public records suggest...").
 - Maintain a neutral, analytical tone. No filler phrases like "Based on available data" at the start.
-- If data is sparse, write a shorter but still substantive summary. Do not pad with generic text.`
-                },
+- If data is sparse, write a shorter but still substantive summary. Do not pad with generic text.`;
+
+    // --- Try Ollama first (local, free, unlimited) ---
+    try {
+        const ollamaResult = await ollamaGenerateText(prompt, SUMMARY_SYSTEM_PROMPT, {
+            temperature: 0.5,
+            timeoutMs: 25000
+        });
+        if (ollamaResult) {
+            console.log("[AI] Summary generated via Ollama (local)");
+            return ollamaResult;
+        }
+    } catch (e) {
+        console.warn("[AI] Ollama summary attempt failed, falling back to Groq:", e.message);
+    }
+
+    // --- Fallback to Groq ---
+    if (!process.env.GROQ_API_KEY) {
+        console.error("GROQ_API_KEY is missing and Ollama is unavailable.");
+        return "";
+    }
+
+    try {
+        const timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Groq API Timeout (generateText)")), 25000)
+        );
+
+        const groqCall = groq.chat.completions.create({
+            messages: [
+                { role: "system", content: SUMMARY_SYSTEM_PROMPT },
                 { role: "user", content: prompt }
             ],
             model: "llama-3.1-8b-instant",
