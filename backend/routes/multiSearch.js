@@ -191,7 +191,7 @@ export async function performSearch(query, simpleMode = false) {
         console.time(`[Serper] Request: ${socialQuery.slice(0, 30)}...`);
         const response = await axios.post("https://google.serper.dev/search", {
             q: socialQuery,
-            num: simpleMode ? 20 : 40
+            num: simpleMode ? 60 : 40
         }, {
             headers: {
                 "X-API-KEY": process.env.SERPER_API_KEY,
@@ -602,35 +602,41 @@ router.post("/identify", async (req, res) => {
                 const [existingNormName, existingNormCompany] = key.split('|');
 
                 const nameMatch = existingNormName === normName;
+                if (!nameMatch) continue;
 
-                // FUZZY COMPANY MATCH: 
-                // Matches if exact, or if one is a substantial substring of the other (min 3 chars)
+                // --- CONTRADICTION CHECKS (CRITICAL) ---
+                const normLoc = (candidate.location || "").toLowerCase().trim();
+                const existingLoc = (existing.location || "").toLowerCase().trim();
+                
+                // If locations exist and are different (at a city/country level), do NOT merge
+                const hasLocationContradiction = (normLoc && existingLoc) && 
+                    !normLoc.includes(existingLoc) && !existingLoc.includes(normLoc);
+
+                // --- POSITIVE OVERLAP CHECKS ---
                 const companyMatch = (normCompany && existingNormCompany) &&
                     (existingNormCompany.includes(normCompany) || normCompany.includes(existingNormCompany)) &&
                     (normCompany.length >= 3 || existingNormCompany.length >= 3);
 
                 const candidateEmails = candidate.email ? [candidate.email] : (candidate.emails || []);
                 const candidatePhones = candidate.phoneNumbers || (candidate.phone ? [candidate.phone] : []);
-
                 const sharedEmail = candidateEmails.some(e => existing.emails.includes(e));
                 const sharedPhone = candidatePhones.some(p => existing.phoneNumbers.includes(p));
 
-                // IDENTITY CONSOLIDATION: Allow merging on name alone for high-authority sources
+                // --- KNOWLEDGE SOURCE SPECIAL CASE ---
                 const isKnowledgeSource = candidate.type === 'knowledge' || existing.type === 'knowledge' ||
                     (candidate.company || '').toLowerCase() === 'knowledge base' ||
                     (existing.company || '').toLowerCase() === 'knowledge base';
-                const eitherHasNoCompany = !normCompany || !existingNormCompany ||
-                    normCompany === 'knowledgebase' || existingNormCompany === 'knowledgebase';
-                const bothHighConfidence = candidate.source === 'internet' && existing.source === 'internet' &&
-                    (candidate.confidence === 'High' || candidate.confidence === 'Verified') &&
-                    (existing.confidence === 'High' || existing.confidence === 'Verified');
 
-                // Merge if:
-                // 1. Name matches AND (Company matches OR Shared Contacts)
-                // 2. Name matches AND one is a Knowledge Base entry
-                // 3. Name matches AND one candidate has no company info
-                // 4. Name matches AND both are high-confidence internet results
-                if (nameMatch && (companyMatch || sharedEmail || sharedPhone || isKnowledgeSource || eitherHasNoCompany || bothHighConfidence)) {
+                // --- THE "DIVERSITY" RULE ---
+                // Do NOT merge if they are different people with the same name.
+                // We only merge if:
+                // 1. Explicit overlap exists (Company, Email, or Phone)
+                // 2. OR one is a Knowledge Source (Wikipedia/IMDB) AND they don't have contradicting locations
+                // 3. OR both are from the same URL (platform profile consolidation)
+                
+                const sharedUrl = candidate.url && existing.socials?.some(s => s.url === candidate.url);
+
+                if (sharedUrl || sharedEmail || sharedPhone || companyMatch || (isKnowledgeSource && !hasLocationContradiction)) {
                     existingKey = key;
                     break;
                 }

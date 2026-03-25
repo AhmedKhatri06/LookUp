@@ -64,11 +64,11 @@ const LivePreviewViewer = ({ url, onOpenOriginal }) => {
             {loading && (
                 <div className="preview-loading-state">
                     <div className="spinner"></div>
-                    <p>Securing interactive preview via Urlbox...</p>
+                    <p>Generating high-fidelity local preview...</p>
                 </div>
             )}
 
-            {!loading && error && !fallbackUrl && (
+            {!loading && error && (
                 <div className="preview-error-state">
                     <p>{error}</p>
                     <button onClick={onOpenOriginal} className="open-original-btn">
@@ -79,36 +79,21 @@ const LivePreviewViewer = ({ url, onOpenOriginal }) => {
 
             {!loading && previewUrl && (
                 <div className="preview-content-area">
-                    {authBlocked && (
-                        <div className="auth-blocked-overlay animate-scale-in">
-                            <div className="auth-blocked-content">
-                                <div className="auth-blocked-icon">🔒</div>
-                                <h3 style={{ marginBottom: '15px' }}>Login interaction detected</h3>
-                                <p style={{ fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Login interactions cannot be completed inside preview mode.</p>
-                                <p className="auth-subtext" style={{ marginTop: '0', marginBottom: '20px' }}>Please open the original website to continue.</p>
-                                <button onClick={onOpenOriginal} className="open-original-btn premium-btn">
-                                    Open Original Page
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
-                    {useFallback && fallbackUrl ? (
-                        <div className="fallback-image-container">
-                            <div className="fallback-notice">
-                                Interactive view unavailable. Showing high-fidelity screenshot render.
-                            </div>
-                            <img src={fallbackUrl} alt="Preview Screenshot rendered fallback" />
-                        </div>
-                    ) : (
-                        <iframe
-                            src={previewUrl}
-                            className={`interactive-iframe ${authBlocked ? 'blurred' : ''}`}
-                            title="Interactive Live Preview"
-                            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-                            onError={handleIframeError}
+                    <div className="screenshot-container">
+                        <img 
+                            src={previewUrl} 
+                            alt="Web Page Preview" 
+                            className="preview-screenshot animate-fade-in"
                         />
-                    )}
+                        <div className="preview-footer-hint">
+                            <span className="hint-icon">🖼️</span>
+                            Static high-fidelity preview. Open original for full interaction.
+                        </div>
+                    </div>
+                    
+                    <button onClick={onOpenOriginal} className="open-original-btn-bottom">
+                        Open Original Page
+                    </button>
                 </div>
             )}
         </div>

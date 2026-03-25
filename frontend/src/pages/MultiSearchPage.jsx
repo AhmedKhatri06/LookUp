@@ -844,45 +844,50 @@ const LookUpPage = () => {
                                 <div className="mode-switcher">
                                     <button 
                                         className={`mode-btn ${searchMode === SEARCH_MODES.GENERAL ? 'active' : ''}`}
-                                        data-mode="search"
                                         onClick={() => setSearchMode(SEARCH_MODES.GENERAL)}
+                                        title="Identity Search"
                                     >
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                             <circle cx="11" cy="11" r="8"></circle>
                                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                                         </svg>
                                     </button>
                                     <button 
                                         className={`mode-btn ${searchMode === SEARCH_MODES.PHONE ? 'active' : ''}`}
-                                        data-mode="phone"
                                         onClick={() => setSearchMode(SEARCH_MODES.PHONE)}
+                                        title="Phone Intelligence"
                                     >
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
-                                            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                            <rect x="5" y="2" width="14" height="20" rx="3" ry="3"></rect>
+                                            <path d="M12 18h.01"></path>
                                         </svg>
                                     </button>
                                 </div>
 
                                 {searchMode === SEARCH_MODES.PHONE && (
-                                    <div className="country-selector-box" ref={countryDropdownRef}>
-                                        <div className="phone-prefix" onClick={() => setShowCountryDropdown(!showCountryDropdown)}>
-                                            <span className="flag">{selectedCountry.flag}</span>
-                                            <span className="prefix" style={{ fontSize: '0.9rem' }}>{selectedCountry.prefix}</span>
-                                            <span className="chevron">▼</span>
-                                        </div>
-                                        {showCountryDropdown && (
-                                            <div className="country-dropdown">
-                                                {COUNTRIES.map((c) => (
-                                                    <div key={c.code} className="country-option" onClick={() => { setSelectedCountry(c); setShowCountryDropdown(false); }}>
-                                                        <span className="option-flag">{c.flag}</span>
-                                                        <span className="option-name">{c.name}</span>
-                                                        <span className="option-prefix">{c.prefix}</span>
-                                                    </div>
-                                                ))}
+                                    <>
+                                        <div className="country-selector-pill" ref={countryDropdownRef}>
+                                            <div className="phone-prefix-v2" onClick={() => setShowCountryDropdown(!showCountryDropdown)}>
+                                                <span className="flag">{selectedCountry.flag}</span>
+                                                <span className="prefix">{selectedCountry.prefix}</span>
+                                                <svg className={`chevron ${showCountryDropdown ? 'open' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
                                             </div>
-                                        )}
-                                    </div>
+                                            {showCountryDropdown && (
+                                                <div className="country-dropdown-v2">
+                                                    {COUNTRIES.map((c) => (
+                                                        <div key={c.code} className="country-option-v2" onClick={() => { setSelectedCountry(c); setShowCountryDropdown(false); }}>
+                                                            <span className="option-flag">{c.flag}</span>
+                                                            <span className="option-name">{c.name}</span>
+                                                            <span className="option-prefix">{c.prefix}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="search-divider"></div>
+                                    </>
                                 )}
 
                                 <input

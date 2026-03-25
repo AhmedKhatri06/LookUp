@@ -24,8 +24,24 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PYTHON_SCRIPT = path.join(__dirname, 'face_verify.py');
-const PYTHON_BIN = process.env.FACE_VERIFY_PYTHON || 'python3';
+const isWindows = process.platform === 'win32';
+
+/**
+ * Converts a Windows absolute path to a WSL path (e.g., D:\foo -> /mnt/d/foo)
+ */
+function toWslPath(winPath) {
+    if (!isWindows || !winPath) return winPath;
+    const cleanPath = winPath.replace(/\\/g, '/');
+    const driveMatch = cleanPath.match(/^([a-zA-Z]):\/(.*)/);
+    if (driveMatch) {
+        return `/mnt/${driveMatch[1].toLowerCase()}/${driveMatch[2]}`;
+    }
+    return cleanPath;
+}
+
+const PYTHON_SCRIPT = isWindows ? toWslPath(path.join(__dirname, 'face_verify.py')) : path.join(__dirname, 'face_verify.py');
+const PYTHON_BIN = process.env.FACE_VERIFY_PYTHON || (isWindows ? 'wsl' : 'python3');
+const PYTHON_ARGS_PREFIX = isWindows ? ['python3'] : [];
 
 // Configurable threshold (default: 70%)
 const SIMILARITY_THRESHOLD = parseInt(process.env.FACE_SIMILARITY_THRESHOLD || '70', 10);
@@ -108,7 +124,8 @@ function cleanupTemp(filePath) {
  */
 function runPython(args, timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
-        execFile(PYTHON_BIN, [PYTHON_SCRIPT, ...args], {
+        const finalArgs = [...PYTHON_ARGS_PREFIX, PYTHON_SCRIPT, ...args.map(a => isWindows ? toWslPath(a) : a)];
+        execFile(PYTHON_BIN, finalArgs, {
             timeout: timeoutMs,
             maxBuffer: 1024 * 1024,
             env: {
