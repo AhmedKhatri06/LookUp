@@ -25,3 +25,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
+
+# Virtual Environments
+backend/.venv/
+.venv/
+env/
+venv/
+
+# Temporary / Debug Files
+test_screenshot.png
+backend/preview_response.json
+backend/test_puppeteer.js
+.DS_Store
