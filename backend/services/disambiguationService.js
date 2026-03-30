@@ -1,6 +1,7 @@
 import { generateText } from './aiService.js';
 
-export async function identifyPeople(searchResults, query) {
+export async function identifyPeople({ searchResults, name, location, keywords }) {
+    const query = name; // Map for internal usage
     const context = searchResults.map(r => ({
         title: r.title,
         snippet: r.snippet,

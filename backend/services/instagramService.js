@@ -48,9 +48,64 @@ class InstagramService {
 
       return [...new Set(handles)]; // Unique handles
     } catch (error) {
-      console.error('[IG Service] Search Error:', error.message);
-      return [];
+      console.warn('[IG Service] Primary indexer failed:', error.message);
+      
+      // Fallback: Use Serper to find handles directly from Google
+      try {
+        if (!process.env.SERPER_API_KEY) return [];
+        console.log(`[IG Service] Falling back to Serper for ${name} handle discovery...`);
+        const response = await axios.post("https://google.serper.dev/search", {
+          q: `site:instagram.com "${name}"`,
+          num: 10
+        }, {
+          headers: { 
+            "X-API-KEY": process.env.SERPER_API_KEY, 
+            "Content-Type": "application/json" 
+          },
+          timeout: 5000
+        });
+        
+        const handles = (response.data.organic || [])
+          .map(r => r.link || r.url || "")
+          .filter(l => l.includes('instagram.com/'))
+          .map(l => l.split('instagram.com/')[1].split('/')[0])
+          .filter(h => h && !['p', 'reels', 'stories', 'explore', 'tags'].includes(h));
+          
+        return [...new Set(handles)];
+      } catch (fallbackError) {
+        console.error('[IG Service] Serper fallback failed:', fallbackError.message);
+        return [];
+      }
     }
+  }
+
+  /**
+   * Generates likely Instagram handle patterns from a person's name.
+   */
+  generatePredictiveHandles(name) {
+    if (!name) return [];
+    const parts = name.toLowerCase().split(/\s+/).filter(p => p.length > 1);
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    
+    if (!first) return [];
+    
+    // Single-word name guard: only generate meaningful patterns
+    if (!last || first === last) {
+      return [
+        `${first}`,
+        `${first}_official`,
+        `${first}.real`
+      ];
+    }
+    
+    return [
+      `${first}.${last}`,
+      `${first}_${last}`,
+      `${first}${last}`,
+      `${first[0]}${last}`,
+      `${first}${last[0]}`
+    ];
   }
 
   /**
@@ -98,8 +153,8 @@ class InstagramService {
     const cleanInput = input.toLowerCase().trim();
     const cleanMask = mask.toLowerCase().trim();
 
-    // Basic logic: check if the first and last chars match the mask's visible chars
-    // e.g. "dhruvil@gmail.com" matches "d***l@g***.com"
+    // Email mask matching with multi-character verification
+    // e.g. "dhruvil@gmail.com" matches "d*****l@g****.com"
     const maskParts = cleanMask.split('@');
     const inputParts = cleanInput.split('@');
 
@@ -107,19 +162,35 @@ class InstagramService {
       const [maskLocal, maskDomain] = maskParts;
       const [inputLocal, inputDomain] = inputParts;
 
+      // 1. First and last character of local part must match
       if (maskLocal[0] !== inputLocal[0]) return false;
       if (maskLocal[maskLocal.length - 1] !== inputLocal[inputLocal.length - 1]) return false;
       
-      // Domain check (usually masks show first char of domain)
+      // 2. Length verification: the mask's total length (visible + asterisks) 
+      //    should approximate the input length. This prevents short inputs
+      //    from matching long masks and vice versa.
+      const maskLocalLength = maskLocal.length;
+      if (Math.abs(maskLocalLength - inputLocal.length) > 2) return false;
+      
+      // 3. Domain suffix must match (e.g., ".com" must equal ".com")
+      const maskDomainSuffix = maskDomain.replace(/^[^.]*/, ''); // ".com" from "g***.com"
+      const inputDomainSuffix = inputDomain.replace(/^[^.]*/, '');
+      if (maskDomainSuffix !== inputDomainSuffix) return false;
+      
+      // 4. Domain first character must match
       if (maskDomain[0] !== inputDomain[0]) return false;
       
       return true;
     }
 
-    // Phone logic (mask usually shows last 2 digits)
+    // Phone mask matching with multi-digit suffix verification
     if (cleanMask.includes('*')) {
-      const visibleSuffix = cleanMask.slice(-2);
-      return cleanInput.endsWith(visibleSuffix);
+      // Extract all visible (non-asterisk) trailing digits from mask
+      const visibleTrailing = cleanMask.match(/[0-9]+$/)?.[0] || '';
+      const cleanPhone = cleanInput.replace(/\D/g, '');
+      
+      if (visibleTrailing.length < 2) return false; // Need at least 2 visible digits
+      return cleanPhone.endsWith(visibleTrailing);
     }
 
     return false;
@@ -139,7 +210,16 @@ class InstagramService {
     const emailList = Array.isArray(emails) ? emails : (emails ? [emails] : []);
     const phoneList = Array.isArray(phones) ? phones : (phones ? [phones] : []);
 
-    const handles = await this.searchHandles(name);
+    let handles = await this.searchHandles(name);
+    
+    // Predictive Probing: Add likely patterns if results are thin
+    if (handles.length < 5) {
+      const alternatives = this.generatePredictiveHandles(name);
+      const beforeCount = handles.length;
+      handles = [...new Set([...handles, ...alternatives])];
+      console.log(`[IG Service] Pattern Probing: Added ${handles.length - beforeCount} new handles (${alternatives.length} patterns generated).`);
+    }
+
     const results = [];
 
     for (const handle of handles.slice(0, 5)) { // Limit to top 5 candidates for speed

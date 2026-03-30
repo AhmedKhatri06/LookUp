@@ -2,7 +2,6 @@ import express from "express";
 import dotenv from "dotenv";
 import axios from "axios";
 import FormInfo from "../models/FormInfo.js";
-import SearchCache from "../models/SearchCache.js";
 import Document from "../models/Document.js";
 import { sqliteSearch } from "../db/sqlite.js";
 import { identifyPeople, generateText, verifyIdentityMatch } from "../services/aiService.js";
@@ -21,6 +20,7 @@ import { extractContactInfo } from "../services/contactService.js";
 dotenv.config();
 
 const router = express.Router();
+const LOGIC_VERSION = "v3"; // Bump this when changing rank/merge logic to invalidate stale caches
 
 // Helper to normalize image URLs and handle blocked proxies
 const normalizeImageUrl = (url, thumbnail) => {
@@ -58,21 +58,51 @@ function normalize(value = "") {
         .replace(/\s+/g, " ");
 }
 
-function rankResults(results, query) {
+/**
+ * Sanitizes search queries to remove special characters that trigger Serper 400 errors.
+ */
+function sanitizeQuery(str = "") {
+    if (!str) return "";
+
+    // LAYER 2: Enhanced Split (Discard text after colons or semicolons)
+    // Prevents "Name: CEO Profile" from polluting queries
+    const cleaned = str.split(/[:;]/)[0].trim();
+
+    return cleaned
+        .replace(/[\-,"'()]/g, " ") // Replace remaining special chars with space
+        .replace(/\s+/g, " ")        // Normalize spaces
+        .trim();
+}
+
+function rankResults(results, query, context = null) {
     const q = normalize(query);
+    const keywords = context?.keywords ? context.keywords.toLowerCase().split(/\s+/).filter(k => k.length > 2) : [];
+    const location = context?.location ? context.location.toLowerCase() : "";
 
     return results
         .map(item => {
             const text = (item.text || "").toLowerCase();
+            const title = (item.title || "").toLowerCase();
+            const combinedText = `${title} ${text}`;
             let score = 0;
 
-            if (text.includes(q)) score += 5;
-            if (text.startsWith(q)) score += 3;
-            score += text.split(q).length - 1;
+            // 1. Name Similarity
+            if (combinedText.includes(q)) score += 10;
+            if (title.startsWith(q)) score += 5;
 
-            // Entity importance (PROFILE > RECORD > AUX)
+            // 2. CONTEXTUAL BOOST (The identity differentiator)
+            if (keywords.length > 0) {
+                keywords.forEach(kw => {
+                    if (combinedText.includes(kw)) score += 20; // Massive boost for keyword correlation
+                });
+            }
+            if (location && combinedText.includes(location)) {
+                score += 15;
+            }
+
+            // 3. Entity Priority (Source Reliability)
             score += (4 - item.priority) * 10;
-            // ✅ FIX: ensure internet results don't disappear
+            
             if (item.source === "Internet") {
                 score += 5;
             }
@@ -120,6 +150,9 @@ export async function searchWikipedia(query) {
 }
 
 export async function performSearch(query, simpleMode = false, identityContext = null, isRefinement = false) {
+    const internetQuery = sanitizeQuery(query);
+    const imageQuery = sanitizeQuery(query);
+    const fallbackImageQuery = sanitizeQuery(query);
     const targetName = identityContext?.name || "";
     const normQuery = normalize(query);
 
@@ -145,7 +178,7 @@ export async function performSearch(query, simpleMode = false, identityContext =
         const nameGuess = queryWords.length >= 2 ? queryWords.slice(0, 2).join(" ") : queryWords[0] || localSearchQuery;
         // If we didn't have identityContext, we use the guess
         if (!targetName) {
-             // this part is slightly redundant now but safe
+            // this part is slightly redundant now but safe
         }
     }
     const context = queryWords.length > 2 ? queryWords.slice(2).join(" ") : "";
@@ -178,47 +211,70 @@ export async function performSearch(query, simpleMode = false, identityContext =
         }).lean();
     }
 
-    let internetQuery = query;
+    internetQuery = sanitizeQuery(query);
     if (sqliteResults && sqliteResults.length > 0) {
         const p = sqliteResults[0];
         const parts = (p.text || "").split(" - ");
         const rowName = parts[0]?.trim() || "";
         const rowTitle = parts.slice(1).join(" - ").trim() || "";
-        internetQuery = `${rowName} ${rowTitle} `.trim() || query;
+        internetQuery = sanitizeQuery(`${rowName} ${rowTitle}`) || sanitizeQuery(query);
     }
 
     // REAL INTERNET SEARCH – SERPAPI
+    // REAL INTERNET SEARCH – SERPAPI (Parallel Adaptive Buckets)
     let internetResults = [];
     try {
-        let socialQuery = internetQuery;
-
-        // STRICT SEARCH (Default): Apply filters for social profiles
         if (!simpleMode) {
-            const socialSitesFilter = supportedPlatformDomains.map(d => `site:${d}`).join(" OR ");
-            socialQuery = `${internetQuery} (${socialSitesFilter})`.trim();
+            // Split domains into two buckets to avoid query length overflow (400 Errors)
+            const half = Math.ceil(supportedPlatformDomains.length / 2);
+            const bucket1 = supportedPlatformDomains.slice(0, half);
+            const bucket2 = supportedPlatformDomains.slice(half);
+
+            const q1 = `${internetQuery} (${bucket1.map(d => `site:${d}`).join(" OR ")})`.trim();
+            const q2 = `${internetQuery} (${bucket2.map(d => `site:${d}`).join(" OR ")})`.trim();
+
+            console.log(`[Serper] Branching Parallel Queries (Adaptive Mode)`);
+            const [resp1, resp2] = await Promise.all([
+                axios.post("https://google.serper.dev/search", { q: q1, num: isRefinement ? 50 : 30 }, {
+                    headers: { "X-API-KEY": process.env.SERPER_API_KEY, "Content-Type": "application/json" },
+                    timeout: 12000
+                }).catch(e => ({ data: { organic: [] } })),
+                axios.post("https://google.serper.dev/search", { q: q2, num: isRefinement ? 50 : 30 }, {
+                    headers: { "X-API-KEY": process.env.SERPER_API_KEY, "Content-Type": "application/json" },
+                    timeout: 12000
+                }).catch(e => ({ data: { organic: [] } }))
+            ]);
+
+            const results1 = resp1.data?.organic || [];
+            const results2 = resp2.data?.organic || [];
+
+            // Merge and Deduplicate by Link
+            const merged = [...results1, ...results2];
+            const seenLinks = new Set();
+            internetResults = merged.filter(item => {
+                const link = item.link || "";
+                if (seenLinks.has(link)) return false;
+                seenLinks.add(link);
+                return true;
+            });
+
+            console.log(`[Serper.dev] Parallel Sweep: ${internetResults.length} unique results found.`);
         } else {
-            // SIMPLE SEARCH: Just text, maybe explicitly exclude some junk?
-            // For now, raw query is best for "Simple Google Search"
-            socialQuery = internetQuery;
+            // SIMPLE SEARCH: Single broad query
+            console.time(`[Serper] Simple Request: ${internetQuery.slice(0, 30)}...`);
+            const response = await axios.post("https://google.serper.dev/search", {
+                q: internetQuery,
+                num: isRefinement ? 80 : 60
+            }, {
+                headers: { "X-API-KEY": process.env.SERPER_API_KEY, "Content-Type": "application/json" },
+                timeout: 15000
+            });
+            console.timeEnd(`[Serper] Simple Request: ${internetQuery.slice(0, 30)}...`);
+            internetResults = response.data?.organic || [];
+            console.log(`[Serper.dev] Simple Mode: ${internetResults.length} results found.`);
         }
 
-        console.time(`[Serper] Request: ${socialQuery.slice(0, 30)}...`);
-        const response = await axios.post("https://google.serper.dev/search", {
-            q: socialQuery,
-            num: isRefinement ? 80 : (simpleMode ? 60 : 40)
-        }, {
-            headers: {
-                "X-API-KEY": process.env.SERPER_API_KEY,
-                "Content-Type": "application/json"
-            },
-            timeout: 15000 // 15s timeout
-        });
-        console.timeEnd(`[Serper] Request: ${socialQuery.slice(0, 30)}...`);
-
-        const results = response.data?.organic || [];
-
-        console.log(`[Serper.dev] Mode: ${simpleMode ? "SIMPLE" : "DEEP"} | Goal: ${socialQuery} `);
-        console.log(`[Serper.dev] Raw Results: ${results.length} `);
+        const results = internetResults;
 
         results.forEach((item, index) => {
             let provider = "Google";
@@ -255,8 +311,11 @@ export async function performSearch(query, simpleMode = false, identityContext =
                     const keywordsList = identityContext?.keywords ? identityContext.keywords.toLowerCase().split(/\s+/) : [];
                     const matchesKeyword = keywordsList.some(kw => title.includes(kw) || snippet.includes(kw));
 
-                    if (isRefinement && matchesKeyword) {
-                        console.log(`[Discovery] Keeping result despite name mismatch (Keyword Match): ${title}`);
+                    // Alias Check: For high-confidence knowledge sources (Wikipedia/IMDB), allow alias matching
+                    const isKnowledgeSource = link.includes('wikipedia.org') || link.includes('imdb.com/name') || link.includes('britannica.com');
+
+                    if ((isRefinement && matchesKeyword) || isKnowledgeSource) {
+                        console.log(`[Discovery] Keeping result despite name mismatch (Keyword/Knowledge): ${title}`);
                     } else {
                         console.log(`[Filter] Dropped(Name Mismatch: '${nameParts[0]}'): ${title} `);
                         return;
@@ -276,11 +335,12 @@ export async function performSearch(query, simpleMode = false, identityContext =
                         const lastChar = preceedingText.slice(-1);
 
                         if (!separators.some(sep => sep.trim() === lastChar || preceedingText.endsWith(sep))) {
-                            const allowedPrefixes = ["mr", "mr.", "dr", "dr.", "prof", "user", "member", "student", "about", "images", "photos", "profile", "view", "contact", "biography", "bio", "follow", "visit", "see", "meet"];
+                            const allowedPrefixes = ["mr", "mr.", "dr", "dr.", "prof", "user", "member", "student", "about", "images", "photos", "profile", "view", "contact", "biography", "bio", "follow", "visit", "see", "meet", "official", "verified"];
                             const wordsBefore = preceedingText.split(" ");
                             const wordBefore = wordsBefore[wordsBefore.length - 1];
 
-                            if (wordBefore && !allowedPrefixes.includes(wordBefore) && isNaN(wordBefore) && provider === "Google") {
+                            // Loosen: allow social handles (e.g., @elonmusk) and common markers
+                            if (wordBefore && !allowedPrefixes.includes(wordBefore) && !wordBefore.startsWith('@') && isNaN(wordBefore) && provider === "Google") {
                                 console.log(`[Filter] Dropped(Prefix '${wordBefore}'): ${title} `);
                                 return;
                             }
@@ -294,14 +354,14 @@ export async function performSearch(query, simpleMode = false, identityContext =
                         const firstChar = followingText.charAt(0);
 
                         if (!separators.some(sep => sep.trim() === firstChar || followingText.startsWith(sep))) {
-                            const allowedSuffixes = ["jr", "sr", "iii", "phd", "md", "profile", "contact", "info", "linkedin", "instagram", "facebook", "twitter", "defined", "wiki", "bio", "net", "org", "com", "official", "page", "account", "handle", "connect", "following"];
-                            
+                            const allowedSuffixes = ["jr", "sr", "iii", "phd", "md", "profile", "contact", "info", "linkedin", "instagram", "facebook", "twitter", "defined", "wiki", "bio", "net", "org", "com", "official", "page", "account", "handle", "connect", "following", "status", "reels"];
+
                             // Context-Aware Filtering: Allow keywords in the postfix
                             const keywordsList = identityContext?.keywords ? identityContext.keywords.toLowerCase().split(/\s+/) : [];
                             const wordsAfter = followingText.split(" ");
                             const wordAfter = wordsAfter[0];
-                            
-                            if (wordAfter && !allowedSuffixes.includes(wordAfter) && !keywordsList.includes(wordAfter) && isNaN(wordAfter) && wordAfter.length > 1 && provider === "Google") {
+
+                            if (wordAfter && !allowedSuffixes.includes(wordAfter) && !keywordsList.includes(wordAfter) && !wordAfter.startsWith('@') && isNaN(wordAfter) && wordAfter.length > 1 && provider === "Google") {
                                 console.log(`[Filter] Dropped(Postfix '${wordAfter}'): ${title} `);
                                 return;
                             }
@@ -412,17 +472,7 @@ export async function performSearch(query, simpleMode = false, identityContext =
     const dedupedLocalResults = Array.from(localMap.values());
 
     const combined = [...dedupedLocalResults, ...dedupedInternetResults];
-    const finalRanked = rankResults(combined, query);
-
-    /*
-    // Save to Cache
-    try {
-      const cacheType = simpleMode ? "SEARCH" : "SEARCH";
-      await SearchCache.create({ query: normQuery, type: cacheType, data: finalRanked });
-    } catch (err) {
-      if (err.code !== 11000) console.error("Cache save failed:", err);
-    }
-    */
+    const finalRanked = rankResults(combined, query, identityContext);
 
     return finalRanked;
 }
@@ -441,20 +491,14 @@ router.post("/identify", async (req, res) => {
         return res.status(400).json({ error: "Search query is required" });
     }
 
-    // Robust Cache Key: prevents collisions between name-only and keyword-based searches
-    const normQuery = `n:${normalize(name)}|k:${normalize(keywords || "")}|l:${normalize(location || "")}|p:${normalize(number || "")}`;
+    // EVIDENCE-CACHE: Prevents collisions and supports logic versioning
+    const normQuery = `n:${normalize(name)}|k:${normalize(keywords || "")}|l:${normalize(location || "")}|p:${normalize(number || "")}|v:${LOGIC_VERSION}`;
 
     try {
-        // Cache Check - Bypass if it's a refinement/precision search to ensure fresh discovery
-        if (!isRefinement) {
-            const cached = await SearchCache.findOne({ query: normQuery, type: "IDENTIFY" });
-            if (cached) {
-                console.log(`[Identify] Cache Hit: ${name} ${keywords ? `(Keyword: ${keywords})` : ""}`);
-                return res.json(cached.data);
-            }
-        } else {
-            console.log(`[Identify] REFINEMENT MODE ACTIVE: Bypassing cache for fresh discovery.`);
-        }
+
+        // EVIDENCE-CACHE: Prevents collisions and supports logic versioning.
+        // We now use the exact Search Context (Name + Keywords + Location) for the raw-search cache key.
+        // This ensures a refined search (with keywords) bypasses a stale "name-only" empty result.
         const inputType = detectInputType(name);
         console.log(`[Identify] Detected Type: ${inputType} | Query: ${name} | Keyword: ${keywords} | Number: ${number} `);
 
@@ -472,7 +516,7 @@ router.post("/identify", async (req, res) => {
                 "site:twitter.com", "site:x.com", "site:crunchbase.com/person/",
                 "site:en.wikipedia.org", "site:imdb.com/name/"
             ].join(" OR ");
-            
+
             // PIVOT: If keywords or location are provided, we lead with a BROAD search to find the niche profile
             // otherwise we lead with a social-restricted search.
             if (keywords || location) {
@@ -504,47 +548,43 @@ router.post("/identify", async (req, res) => {
                     const broadRes = await performSearch(broadQuery, true, identityContext, isRefinement).catch(e => []);
                     sRes = [...(sRes || []), ...(broadRes || [])];
                 }
+
+                // KEYWORD-PRIORITY BUCKET: When keywords are provided (especially in refinement),
+                // run a dedicated search where the keyword leads the query. This ensures
+                // keyword-relevant results are discovered even if name-match filtering
+                // would normally drop them. This is permanent: any future keyword will
+                // automatically get its own discovery bucket.
+                if (keywords && inputType === "NAME") {
+                    console.log(`[Identify] Keyword-Priority Bucket: "${keywords}" + "${name}"`);
+                    const keywordQuery = `"${keywords}" "${name}"`.trim();
+                    const kwRes = await performSearch(keywordQuery, true, identityContext, true).catch(e => []);
+                    if (kwRes && kwRes.length > 0) {
+                        console.log(`[Identify] Keyword Bucket found ${kwRes.length} additional results.`);
+                        // Merge with URL deduplication
+                        const existingUrls = new Set((sRes || []).map(r => (r.url || "").toLowerCase()));
+                        kwRes.forEach(r => {
+                            if (r.url && !existingUrls.has(r.url.toLowerCase())) {
+                                sRes.push(r);
+                                existingUrls.add(r.url.toLowerCase());
+                            }
+                        });
+                    }
+                }
+
                 return sRes;
             })()
         ]);
 
         // 2. Identity Enrichment Pipeline (Wrapped in safety guard to prevent process exit)
-        let instagramRes = [];
-        try {
-            console.log(`[Identify] Extracting contact signals from ${internetRes?.length || 0} internet results...`);
-            const signals = extractContactInfo(internetRes || []);
-            const enrichedEmails = signals.emails || [];
-            const enrichedPhones = [...new Set([...(signals.phones || []), number].filter(Boolean))];
+        const signals = extractContactInfo(internetRes || []);
+        const enrichedEmails = signals.emails || [];
+        const enrichedPhones = [...new Set([...(signals.phones || []), number].filter(Boolean))];
 
-            if (enrichedEmails.length > 0 || enrichedPhones.length > 1) {
-                console.log(`[Identify] Discovered Identity Signals -> Emails: ${enrichedEmails.length} | Phones: ${enrichedPhones.length}`);
-            }
-
-            // 3. Instagram Discovery (Enriched with discovered signals)
-            instagramRes = await instagramService.identify(name, enrichedEmails, enrichedPhones).catch(e => { 
-                console.error("[IG Service] Enrichment failed:", e.message); 
-                return []; 
-            });
-        } catch (enrichmentError) {
-            console.error("[Identify] Enrichment Pipeline crashed. Falling back to basic search.", enrichmentError.message);
-            // Fallback to basic search if enrichment logic fails
-            instagramRes = await instagramService.identify(name, [], [number].filter(Boolean)).catch(() => []);
+        if (enrichedEmails.length > 0 || enrichedPhones.length > 1) {
+            console.log(`[Identify] Discovered Identity Signals -> Emails: ${enrichedEmails.length} | Phones: ${enrichedPhones.length}`);
         }
 
-        console.log(`[Identify] Results -> CSV: ${csvResults?.length || 0} | SQLite: ${sqliteResults?.length || 0} | Mongo: ${dbResults?.length || 0} | Internet: ${internetRes?.length || 0} | Instagram: ${instagramRes?.length || 0}`);
-
-        const igCandidates = (instagramRes || []).map(ig => ({
-            name: ig.fullName || name, // UNIFIED: Removed (@handle) decoration for cleaner UI
-            description: `Instagram Profile | @${ig.handle} | ${ig.reason}`,
-            location: "Instagram",
-            company: keywords || "",
-            confidence: ig.confidence >= 90 ? "Verified" : (ig.confidence >= 40 ? "High" : "Medium"),
-            source: "internet",
-            type: "social",
-            url: ig.url,
-            identityScore: ig.confidence,
-            keywordMatched: keywords || ""
-        }));
+        console.log(`[Identify] Results -> CSV: ${csvResults?.length || 0} | SQLite: ${sqliteResults?.length || 0} | Mongo: ${dbResults?.length || 0} | Internet: ${internetRes?.length || 0}`);
 
         let mongoResults = dbResults || [];
         let searchResults = internetRes || [];
@@ -642,10 +682,10 @@ router.post("/identify", async (req, res) => {
                 // If AI finds nothing but we have results, provide raw results as fallback
                 if ((!internetCandidates || internetCandidates.length === 0)) {
                     internetCandidates = searchResults.map(r => ({
-                        name: r.title.split(/[-|]/)[0].trim() + (keywords ? ` ${keywords} ` : ""),
+                        name: r.title.split(/[-|]/)[0].trim(),
                         description: r.text || "Web result",
                         location: r.provider || "Internet",
-                        company: keywords || "", // Added company field
+                        company: keywords || "",
                         confidence: "Medium",
                         source: "internet",
                         url: r.url,
@@ -672,7 +712,7 @@ router.post("/identify", async (req, res) => {
 
         // 3. Combine and Deduplicate (Robust Entity Resolution)
         // Prioritize: Local > KnowledgeBase > IG-Technical > InternetAI
-        const combined = [...localCandidates, ...knowledgeCandidates, ...igCandidates, ...internetCandidates];
+        const combined = [...localCandidates, ...knowledgeCandidates, ...internetCandidates];
         const mergedIdentities = new Map();
 
         combined.forEach(candidate => {
@@ -718,19 +758,24 @@ router.post("/identify", async (req, res) => {
                 // Do NOT merge if they are different people with the same name.
                 // We only merge if:
                 // 1. Explicit overlap exists (Company, Email, or Phone)
-                // 2. OR one is a Knowledge Source (Wikipedia/IMDB) AND they don't have contradicting locations
-                // 3. OR both are from the same URL (platform profile consolidation)
+                // 2. OR both are from the same URL (platform profile consolidation)
+                // Knowledge sources (Wikipedia/IMDB) follow the SAME rules as all candidates.
+                // This prevents famous entities from collapsing into a single card.
 
                 const sharedUrl = candidate.url && existing.socials?.some(s => s.url === candidate.url);
 
-                if (sharedUrl || sharedEmail || sharedPhone || companyMatch || (isKnowledgeSource && !hasLocationContradiction)) {
+                if (sharedUrl || sharedEmail || sharedPhone || companyMatch) {
                     existingKey = key;
                     break;
                 }
             }
 
             if (!existingKey) {
-                mergedIdentities.set(compositeKey, {
+                // To avoid accidental collapse (Map Overwrite), we use the Map size to create a unique identity ID 
+                // if they haven't been merged by the "positive overlap" rules.
+                const identityId = `${compositeKey}|${mergedIdentities.size}`;
+                
+                mergedIdentities.set(identityId, {
                     ...candidate,
                     otherSources: candidate.source ? [candidate.source] : [],
                     phoneNumbers: candidate.phoneNumbers || (candidate.phone ? [candidate.phone] : []),
@@ -834,11 +879,26 @@ router.post("/identify", async (req, res) => {
 
         const finalCandidates = Array.from(mergedIdentities.values())
             .filter(c => !isPostCandidate(c))
-            .sort((a, b) => {
-                if (a.source === "local" && b.source !== "local") return -1;
-                if (a.source !== "local" && b.source === "local") return 1;
-                return 0;
-            });
+            .map(candidate => {
+                let rankScore = 0;
+                const kw = (keywords || "").toLowerCase();
+                const loc = (location || "").toLowerCase();
+                const text = `${candidate.name} ${candidate.description} ${candidate.company}`.toLowerCase();
+
+                // 1. Explicit Local Match (Still valuable for historical accuracy)
+                if (candidate.source === "local") rankScore += 40;
+
+                // 2. CONTEXTUAL OVERLAP (Identity precision)
+                if (kw && text.includes(kw)) rankScore += 50;
+                if (loc && (text.includes(loc) || (candidate.location || "").toLowerCase().includes(loc))) rankScore += 30;
+
+                // 3. CONFIDENCE BOOST (AI/Verified signal)
+                if (candidate.confidence === "Verified") rankScore += 20;
+                if (candidate.confidence === "High") rankScore += 10;
+
+                return { ...candidate, rankScore };
+            })
+            .sort((a, b) => (b.rankScore || 0) - (a.rankScore || 0));
 
 
         const identifyData = {
@@ -848,12 +908,9 @@ router.post("/identify", async (req, res) => {
             resolvedPersona: resolvedPersona
         };
 
-        // Cache persistent storage
-        try {
-            await SearchCache.create({ query: normQuery, type: "IDENTIFY", data: identifyData });
-        } catch (cErr) {
-            if (cErr.code !== 11000) console.error("[Identify] Cache save error:", cErr.message);
-        }
+        // We NO LONGER save the final identifyData to the SearchCache here. 
+        // This ensures the "Identity Resolution Logic" always runs fresh on the evidence.
+        // The API credits are already saved by caching raw internet results in performSearch().
 
         res.json(identifyData);
     } catch (err) {
@@ -1279,6 +1336,39 @@ router.post("/deep", async (req, res) => {
 
         console.log(`[Deep Search] AI Refinement complete. Final profiles: ${socialProfiles.length}`);
 
+        // AI Bio-Miner: Wikipedia Fallback
+        let finalDescription = profession || person.description || "Intelligence Synthesis Target";
+        if (!wikiResult && socialProfiles.length > 0) {
+            console.log(`[Bio-Miner] Wikipedia empty. Synthesizing bio from ${socialProfiles.length} profiles...`);
+            const bioSourceRaw = socialProfiles
+                .filter(s => s.identityScore >= 70)
+                .slice(0, 3)
+                .map(s => `${s.platform}: ${s.username} - ${s.title || ''} ${s.snippet || s.bio || ''}`)
+                .join("\n");
+
+            if (bioSourceRaw.length > 20) {
+                const bioPrompt = `Synthesize a short, professional one-sentence biography (max 30 words) for ${name} based on these social signals:\n${bioSourceRaw}\n\nReturn ONLY the bio string. No introductory text.`;
+
+                // PERMANENT STABILITY FIX: Synthesis Timeout (Circuit Breaker)
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error("Synthesis Timeout")), 12000)
+                );
+
+                const synthesizedBio = await Promise.race([
+                    generateText(bioPrompt),
+                    timeoutPromise
+                ]).catch((e) => {
+                    console.warn(`[Bio-Miner] Synthesis failed or timed out: ${e.message}`);
+                    return null;
+                });
+
+                if (synthesizedBio) {
+                    finalDescription = synthesizedBio.trim().replace(/^"|"$/g, '');
+                    console.log(`[Bio-Miner] Synthesis successful: ${finalDescription.slice(0, 40)}...`);
+                }
+            }
+        }
+
         // Cancellation Detection (moved early)
         let searchIsCancelled = false;
         req.on('close', () => {
@@ -1304,7 +1394,7 @@ router.post("/deep", async (req, res) => {
                 ...person,
                 name,
                 location: location || person.location,
-                description: profession || person.description,
+                description: finalDescription,
                 emails: [...new Set([...(person.emails || []), ...(enrichmentResult?.email ? [enrichmentResult.email] : []), ...Array.from(localEmails), ...Array.from(webEmails)])],
                 phoneNumbers: [...new Set([...(person.phoneNumbers || []), ...Array.from(localPhones), ...Array.from(webPhones)])],
                 enrichmentRecord: enrichmentResult
@@ -1329,10 +1419,42 @@ router.post("/verify", async (req, res) => {
     try {
         console.log(`[Deep Search] Starting Layer 2 (Heavy) for: ${name}`);
 
-        // 1. Identify Anchor for Image Verification
+        // 1. EXTRACTION: Get contact signals for targeted Instagram probing
+        const signals = extractContactInfo(allSearchItems || []);
+        const enrichedEmails = (signals.emails || []).filter(e => typeof e === 'string' && e.includes('@'));
+        const enrichedPhones = (signals.phones || []).filter(p => typeof p === 'string' && p.length >= 7 && !p.includes('.'));
+
+        // 2. PROBE: Perform targeted Instagram discovery for the SELECTED candidate
+        let discoveredInstagram = null;
+        try {
+            const instagramResults = await instagramService.identify(name, enrichedEmails, enrichedPhones);
+            if (instagramResults && instagramResults.length > 0) {
+                const bestIg = instagramResults[0]; // Take the top verified match
+                discoveredInstagram = {
+                    platform: "Instagram",
+                    url: bestIg.url,
+                    handle: bestIg.handle,
+                    username: `@${bestIg.handle}`,
+                    title: `Instagram Profile (${bestIg.reason})`,
+                    identityScore: bestIg.confidence,
+                    aiVerified: bestIg.confidence >= 80
+                };
+                console.log(`[Deep Search] Targeted IG found for ${name}: @${bestIg.handle}`);
+            }
+        } catch (igErr) {
+            console.error(`[Deep Search] Targeted IG probe failed: ${igErr.message}`);
+        }
+
+        // 3. MERGE: Add discovered IG to the socials list for AI synthesis and UI
+        const finalSocials = [...(socials || [])];
+        if (discoveredInstagram && !finalSocials.find(s => s.platform === "Instagram")) {
+            finalSocials.push(discoveredInstagram);
+        }
+
+        // 4. Identify Anchor for Image Verification
         let identityAnchor = null;
         const potentialAnchors = [];
-        const linkedInProfile = socials.find(s => s.platform?.toLowerCase() === 'linkedin');
+        const linkedInProfile = finalSocials.find(s => s.platform?.toLowerCase() === 'linkedin');
         if (linkedInProfile?.thumbnail) potentialAnchors.push(linkedInProfile.thumbnail);
         if (person.primaryImage) potentialAnchors.push(person.primaryImage);
 
@@ -1341,28 +1463,69 @@ router.post("/verify", async (req, res) => {
         );
         identityAnchor = anchorResults.find(a => a.hasFace)?.url || null;
 
+        // TIER 2: Secondary Anchor (Wikipedia/Knowledge Images from local records)
+        if (!identityAnchor) {
+            const knowledgeImg = socials.find(s => s.platform?.toLowerCase() === 'wikipedia' || s.source?.toLowerCase() === 'knowledgebase')?.thumbnail;
+            if (knowledgeImg && await detectHumanFace(knowledgeImg)) {
+                identityAnchor = knowledgeImg;
+            }
+        }
+
         // 2. Parallel AI Summary Start
         const aiSummaryPromise = (async () => {
+            // FILTER: Only include social profiles that have passed identity verification
+            const verifiedSocials = finalSocials.filter(s => s.identityScore >= 45 || s.aiVerified === true);
+
+            // CLEAN: Remove generic placeholders from description
+            const cleanDescription = (person.description || "").replace(/Web result|Intelligence Synthesis Target|no description available/gi, "").trim();
+
             const summaryParts = [
-                `Professional Identity: ${person.name} - ${person.description || "Intelligence Synthesis Target"}`,
-                `Location: ${person.location || "Unknown"}`,
-                `Digital Profiles: ${socials.map(s => `${s.platform}: ${s.url}`).join(", ")}`
+                `Target Name: ${person.name}`,
+                `Focus Context: ${person.company || person.keywordMatched || "General Profile"}`,
+                `Professional Role: ${cleanDescription || "Professional"}`,
+                `Location: ${person.location || "Not specified"}`,
+                `Verified Digital Presence: ${verifiedSocials.map(s => `${s.platform}: ${s.url} (${s.bio || s.title || "Profile"})`).join("\n")}`
             ];
-            const prompt = `Generate a comprehensive professional dossier summary for ${name}.\n\nAVAILABLE INTELLIGENCE:\n${summaryParts.join("\n")}\n\nSynthesize all data points into a structured profile. Highlight professional identity and digital presence.`;
+
+            const prompt = `You are a senior intelligence analyst. Generate an accurate professional dossier summary for ${name}.
+            
+STRICT GROUNDING RULE: Use ONLY information that relates to the person's focus context (${person.company || person.keywordMatched}). 
+If a social profile contradicts this context, ignore it.
+
+AVAILABLE INTELLIGENCE:
+${summaryParts.join("\n")}
+
+Synthesize these data points into a concise, 2-paragraph professional summary. Paragraph 1 should focus on career and primary identity. Paragraph 2 should focus on digital footprint and professional affiliations.`;
+
             return await generateText(prompt).catch(() => "Summary generation unavailable.");
         })();
 
         // 3. Image Verification Pipeline (Layer 2)
         const candidateImages = [];
         socials.forEach(s => {
-            if (s.thumbnail) candidateImages.push({ url: s.thumbnail, score: 100, source: s.platform, type: 'profile' });
+            if (s.thumbnail) candidateImages.push({
+                url: s.thumbnail,
+                score: 100,
+                source: s.platform,
+                type: 'profile',
+                title: s.username || name,
+                link: s.url
+            });
         });
 
         allSearchItems.forEach(r => {
             if (r.images) {
                 r.images.forEach(imgUrl => {
                     const norm = normalizeImageUrl(imgUrl);
-                    if (norm) candidateImages.push({ url: norm.original, thumbnail: norm.thumbnail, score: 50, source: r.provider || 'Web', type: 'organic' });
+                    if (norm) candidateImages.push({
+                        url: norm.original,
+                        thumbnail: norm.thumbnail,
+                        score: 50,
+                        source: r.provider || 'Web',
+                        type: 'organic',
+                        title: r.title || r.text,
+                        link: r.link || r.url
+                    });
                 });
             }
         });
@@ -1378,8 +1541,18 @@ router.post("/verify", async (req, res) => {
 
             if (identityAnchor) {
                 const similarity = await verifyFaceSimilarity(identityAnchor, currentUrl);
-                // PERMANENT STABILITY FIX: STRICT threshold (85)
-                if (similarity < 85) return { ...img, isBlocked: true };
+
+                // MAV 2.0: Weighted Identity Scoring
+                // If the image source has a strong name match, we accept a slightly lower similarity (75)
+                const nameParts = (name || "").toLowerCase().split(" ").filter(p => p.length > 2);
+                const isNameMatch = nameParts.length > 0 && nameParts.every(part =>
+                    (img.title || "").toLowerCase().includes(part) ||
+                    (img.link || "").toLowerCase().includes(part)
+                );
+
+                const threshold = isNameMatch ? 75 : 85;
+                if (similarity < threshold) return { ...img, isBlocked: true };
+
                 return { ...img, similarity, isBlocked: false };
             }
             return { ...img, isBlocked: true }; // NO ANCHOR = NO IMAGE
@@ -1402,7 +1575,8 @@ router.post("/verify", async (req, res) => {
         res.json({
             images: finalGallery,
             aiSummary: aiSummary,
-            primaryImage: finalGallery[0]?.original || person.primaryImage || ""
+            primaryImage: finalGallery[0]?.original || person.primaryImage || "",
+            enrichedSocials: finalSocials // Return updated list with discovered IG
         });
     } catch (err) {
         console.error("Verification Layer 2 failed:", err);

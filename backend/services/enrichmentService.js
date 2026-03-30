@@ -1,8 +1,6 @@
-import EnrichCache from '../models/EnrichCache.js';
 import { generateEmailPatterns } from '../utils/emailPatterns.js';
 import { validateEmail } from './emailValidator.js';
 import { searchPublicSignals } from './osintService.js';
-import { enrichWithHunter } from '../providers/hunter.js';
 import { enrichWithSnov } from '../providers/snov.js';
 import { enrichWithApollo } from '../providers/apollo.js';
 
@@ -44,46 +42,42 @@ export async function enrichContact(name, company, domain = null) {
     }
 
     if (!activeDomain) {
-        console.warn(`[Enrich] No domain found for ${name} at ${company}. Pattern discovery skipped.`);
+        console.warn(`[Enrich] No domain found for ${name} at ${company}. Domain-dependent steps will be skipped.`);
     }
 
     const cacheKey = `${name}:${company}:${activeDomain || 'no-domain'}`.toLowerCase();
     
-    // 1. Check Cache
-    const cached = await EnrichCache.findOne({ key: cacheKey });
-    if (cached) {
-        console.log(`[Enrich] Cache Hit: ${name}`);
-        return cached.data;
-    }
-
     let bestResult = null;
     let maxScore = 0;
 
-    // 2. Free Layer: Pattern Matching & MX Check (Cost: 0)
-    console.log(`[Enrich] Starting Free Layer for ${name}...`);
-    const patterns = generateEmailPatterns(name, domain);
-    const validations = await Promise.all(patterns.map(p => validateEmail(p)));
-    
-    for (let i = 0; i < validations.length; i++) {
-        const v = validations[i];
-        if (v.valid && v.mx) {
-            const score = 40; // Base score for MX valid pattern
-            if (score > maxScore) {
-                maxScore = score;
-                bestResult = {
-                    email: patterns[i],
-                    source: 'Pattern Discovery (MX Verified)',
-                    confidence: score,
-                    verificationStatus: 'verified'
-                };
+    // 2. Free Layer: Pattern Matching & MX Check (Cost: 0) — requires domain
+    if (activeDomain) {
+        console.log(`[Enrich] Starting Pattern Discovery for ${name} @ ${activeDomain}...`);
+        const patterns = generateEmailPatterns(name, activeDomain);
+        const validations = await Promise.all(patterns.map(p => validateEmail(p)));
+        
+        for (let i = 0; i < validations.length; i++) {
+            const v = validations[i];
+            if (v.valid && v.mx) {
+                const score = 40; // Base score for MX valid pattern
+                if (score > maxScore) {
+                    maxScore = score;
+                    bestResult = {
+                        email: patterns[i],
+                        source: 'Pattern Discovery (MX Verified)',
+                        confidence: score,
+                        verificationStatus: 'verified'
+                    };
+                }
             }
         }
     }
 
-    // 3. Free Layer: OSINT / Public Signals (Cost: 0)
+    // 3. Free Layer: OSINT / Public Signals (Cost: 0) — runs REGARDLESS of domain
+    // This is the critical path for individuals without corporate domains.
     if (maxScore < 70) {
-        console.log(`[Enrich] Searching public signals...`);
-        const publicEmails = await searchPublicSignals(name, company, domain);
+        console.log(`[Enrich] Searching public signals for ${name}...`);
+        const publicEmails = await searchPublicSignals(name, company, activeDomain);
         for (const email of publicEmails) {
             const v = await validateEmail(email);
             if (v.valid) {
@@ -101,18 +95,16 @@ export async function enrichContact(name, company, domain = null) {
         }
     }
 
-    // 4. Provider Waterfall (Cost: API Credits - Only if free layer is weak)
-    if (maxScore < 70) {
+    // 4. Provider Waterfall (Cost: API Credits - Only if free layer is weak AND domain exists)
+    if (maxScore < 70 && activeDomain) {
         console.log(`[Enrich] Free layers insufficient. Starting provider waterfall...`);
         
         const providers = [
-            { name: 'Hunter', fn: enrichWithHunter },
             { name: 'Snov', fn: enrichWithSnov },
             { name: 'Apollo', fn: enrichWithApollo }
         ];
 
         for (const provider of providers) {
-            if (!activeDomain) break; // Providers mostly need domains
             console.log(`[Enrich] Trying ${provider.name}...`);
             const res = await provider.fn(name, activeDomain);
             if (res && res.email) {
@@ -132,21 +124,17 @@ export async function enrichContact(name, company, domain = null) {
                 if (maxScore >= 80) break; // Stop waterfall if we have high confidence
             }
         }
+    } else if (maxScore < 70 && !activeDomain) {
+        console.log(`[Enrich] No domain available for provider waterfall. Relying on OSINT results.`);
     }
 
-    if (bestResult) {
-        // Save to Cache
-        await EnrichCache.create({
-            key: cacheKey,
-            data: bestResult
-        }).catch(e => console.error('[Enrich] Cache save failed:', e.message));
-        
+    if (bestResult && (bestResult.verificationStatus === 'verified' || (bestResult.confidence >= 70))) {
         return bestResult;
     }
 
     return {
         email: null,
-        source: 'None',
+        source: 'Not Found',
         confidence: 0,
         verificationStatus: 'not_found'
     };

@@ -48,21 +48,6 @@ const SIMILARITY_THRESHOLD = parseInt(process.env.FACE_SIMILARITY_THRESHOLD || '
 
 console.log(`[FaceVerification] Local DeepFace engine active | Python: ${PYTHON_BIN} | Threshold: ${SIMILARITY_THRESHOLD}%`);
 
-// Simple LRU cache for verification results
-const verificationCache = new Map();
-const MAX_CACHE_SIZE = 100;
-
-function getCacheKey(type, ...urls) {
-    return `${type}:${urls.sort().join('|')}`;
-}
-
-function setCache(key, value) {
-    if (verificationCache.size >= MAX_CACHE_SIZE) {
-        const firstKey = verificationCache.keys().next().value;
-        verificationCache.delete(firstKey);
-    }
-    verificationCache.set(key, value);
-}
 
 /**
  * Download an image URL to a local temp file.
@@ -191,14 +176,6 @@ export async function batchWithPacing(items, fn, batchSize = 3, delayMs = 300) {
 export async function verifyFaceSimilarity(anchorUrl, candidateUrl) {
     if (!anchorUrl || !candidateUrl) return 0;
 
-    // Check cache
-    const cacheKey = getCacheKey('verify', anchorUrl, candidateUrl);
-    if (verificationCache.has(cacheKey)) {
-        const cached = verificationCache.get(cacheKey);
-        console.log(`[FaceVerification] Cache hit: ${cached.confidence}% - ${candidateUrl.substring(0, 50)}...`);
-        return cached.isSamePerson ? cached.confidence : 0;
-    }
-
     let anchorPath = null;
     let candidatePath = null;
 
@@ -221,7 +198,6 @@ export async function verifyFaceSimilarity(anchorUrl, candidateUrl) {
             return 55;
         }
 
-        setCache(cacheKey, result);
         console.log(`[FaceVerification] Similarity: ${result.confidence}% (distance: ${result.distance}) - ${candidateUrl.substring(0, 50)}...`);
         return result.isSamePerson ? result.confidence : 0;
     } catch (error) {
@@ -241,13 +217,6 @@ export async function verifyFaceSimilarity(anchorUrl, candidateUrl) {
 export async function detectHumanFace(imageUrl) {
     if (!imageUrl) return false;
 
-    // Check cache
-    const cacheKey = getCacheKey('detect', imageUrl);
-    if (verificationCache.has(cacheKey)) {
-        const cached = verificationCache.get(cacheKey);
-        return cached.hasHumanFace;
-    }
-
     let localPath = null;
 
     try {
@@ -264,7 +233,6 @@ export async function detectHumanFace(imageUrl) {
             return true;
         }
 
-        setCache(cacheKey, result);
 
         if (!result.hasHumanFace) {
             console.log(`[FaceVerification] No face detected in: ${imageUrl.substring(0, 50)}...`);

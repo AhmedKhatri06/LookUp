@@ -46,8 +46,8 @@ export const identifyPeople = async ({ name, location, keywords, searchResults }
       Return a JSON array of distinct identity candidate objects.
       Each object MUST have:
       {
-          "name": "Full Name",
-          "description": "Short profession/role summary",
+          "name": "Strict Name Only (e.g. Sundar Pichai. NO titles like CEO or Dr.)",
+          "description": "Short profession/role summary (e.g. CEO of Google)",
           "location": "City, Country (if known)",
           "company": "Current organization",
           "url": "A primary social or profile URL",
@@ -55,6 +55,12 @@ export const identifyPeople = async ({ name, location, keywords, searchResults }
           "confidence": "Low/Medium/High",
           "reasoning": "Explain why this is a distinct persona from others"
       }
+      
+      IDENTITY INTEGRITY RULES:
+      - "name": MUST be ONLY the person's full name. 
+      - "name": NEVER include professional titles, separators (:, -), or company names.
+      - "name": If the name is "Sundar Pichai: Google CEO", the extracted name MUST be "Sundar Pichai".
+      - "description": This is where you put the title and company details.
       
       Strategy: 
       - Prioritize profile links over news articles.

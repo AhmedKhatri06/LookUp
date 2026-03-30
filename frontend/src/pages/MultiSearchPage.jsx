@@ -497,10 +497,11 @@ const MultiSearchPage = () => {
         const searchName = searchData ? searchData.name : query;
         if (!searchName || typeof searchName !== 'string' || !searchName.trim()) return;
 
-        // B-003: Reset stale metadata instantly
+        // B-003: Reset stale metadata & UI states instantly before starting
         setData(null);
         setCandidates([]);
-        setLoadProgress(10); // Start progress immediately at 10%
+        setShowFeedbackForm(false); // CRITICAL: Stop the "Person Not Found" loop immediately
+        setLoadProgress(10); 
 
         setStage(STAGES.IDENTIFYING);
 
