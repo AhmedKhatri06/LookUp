@@ -7,9 +7,6 @@ import ReactMarkdown from 'react-markdown';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-
-
-
 // Helper: Identify synthetic/placeholder data patterns that should NEVER be used for merging or displayed as 'Verified'
 const isPlaceholder = (value) => {
     if (!value) return true;
@@ -232,6 +229,7 @@ const MultiSearchPage = () => {
     const [selectedCountry, setSelectedCountry] = useState(COUNTRIES[0]);
     const [showCountryDropdown, setShowCountryDropdown] = useState(false);
     const [query, setQuery] = useState(() => localStorage.getItem("search-query") || "");
+    const [globalKeyword, setGlobalKeyword] = useState(() => localStorage.getItem("search-keyword") || "");
     const [data, setData] = useState(null);
     const [candidates, setCandidates] = useState(() => {
         const saved = localStorage.getItem("nexa-candidates");
@@ -423,6 +421,10 @@ const MultiSearchPage = () => {
     }, [query]);
 
     useEffect(() => {
+        localStorage.setItem("search-keyword", globalKeyword);
+    }, [globalKeyword]);
+
+    useEffect(() => {
         localStorage.setItem("nexa-candidates", JSON.stringify(candidates));
     }, [candidates]);
 
@@ -486,8 +488,9 @@ const MultiSearchPage = () => {
         setCandidates([]);
         setShowFeedbackForm(false);
         setLoadProgress(10); 
-        setStage(STAGES.IDENTIFYING);
+        setStage(isRefinement ? STAGES.REFINING : STAGES.IDENTIFYING);
         setQuery(searchName);
+        setGlobalKeyword(searchKeyword);
 
         const VITE_API_URL = API_URL || "http://localhost:5000";
 
@@ -586,6 +589,7 @@ const MultiSearchPage = () => {
     const handleReset = () => {
         setStage(STAGES.ENTRY);
         setQuery("");
+        setGlobalKeyword("");
         setLoadProgress(0);
         setCurrentStep(0);
         setDeepData(null);
@@ -594,6 +598,7 @@ const MultiSearchPage = () => {
         // Clear all persistent states
         localStorage.removeItem("lookup-stage");
         localStorage.removeItem("search-query");
+        localStorage.removeItem("search-keyword");
         localStorage.removeItem("nexa-candidates");
         localStorage.removeItem("nexa-deep-data");
         localStorage.removeItem("recent-searches");
@@ -989,7 +994,7 @@ const MultiSearchPage = () => {
                             <div className="animate-fade-up" style={{ marginTop: '3rem', textAlign: 'center' }}>
                                 <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>Don't see who you're looking for?</p>
                                 <button className="nav-btn secondary" onClick={() => {
-                                    setFeedbackData({ name: query, keyword: '', number: '' });
+                                    setFeedbackData({ name: query, keyword: globalKeyword, location: '', number: '' });
                                     setShowFeedbackForm(true);
                                 }} style={{ border: '1px solid var(--accent)', color: 'var(--accent)' }}>
                                     Person Not Found
@@ -1362,6 +1367,16 @@ const MultiSearchPage = () => {
                                             onChange={(e) => setFeedbackData({ ...feedbackData, keyword: e.target.value })}
                                             placeholder="Company, Role, or Location"
                                             required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: '0.5rem', color: 'var(--text-soft)' }}>LOCATION (OPTIONAL)</label>
+                                        <input
+                                            className="hero-search-input"
+                                            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-light)', padding: '0.75rem 1rem', fontSize: '1rem', width: '100%', boxSizing: 'border-box', color: 'var(--primary)' }}
+                                            value={feedbackData.location || ""}
+                                            onChange={(e) => setFeedbackData({ ...feedbackData, location: e.target.value })}
+                                            placeholder="City, State, or Country"
                                         />
                                     </div>
                                 </div>

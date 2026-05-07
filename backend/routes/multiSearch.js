@@ -48,49 +48,6 @@ const checkAbort = (req, res) => {
     }
 };
 
-/**
- * Route 1: Discovery (Identify)
- * Fetches initial candidates from Tavily Basic + Local DBs.
- * Filtered via Ollama.
- */
-router.post("/identify", async (req, res) => {
-    const { name, keywords, location } = req.body;
-    if (!name) return res.status(400).json({ error: "Name is required" });
-
-    console.log(`[Flow] Discovery Phase: ${name}`);
-
-    try {
-        checkAbort(req, res);
-        // Parallel fetch: Tavily Basic + Local Repos
-        const [internetRes, dbResults, csvResults, sqliteResults] = await Promise.all([
-            searchFree(name).catch(() => []),
-            Document.find({ text: { $regex: name, $options: "i" } }).limit(5).lean().catch(() => []),
-            searchCSVs(name, "NAME").catch(() => []),
-            Promise.resolve().then(() => sqliteSearch(name)).catch(() => [])
-        ]);
-
-        checkAbort(req, res);
-
-        const rawResults = [
-            ...internetRes,
-            ...dbResults.map(d => ({ title: name, text: d.text || d.content, source: "MongoDB" })),
-            ...csvResults.map(c => ({ title: c.name, text: c.description || c.location, source: "CSV Archives" })),
-            ...sqliteResults.map(s => ({ title: s.name, text: s.title || s.description, source: "SQLite DB" }))
-        ];
-
-        // Process through Gemini for clean cards (Stable Cloud Alternative)
-        const candidates = await geminiCandidateHandler({ name, searchResults: rawResults });
-
-        res.json({ success: true, candidates });
-    } catch (err) {
-        if (err.status === 499) {
-            console.warn(`[Flow] Discovery Aborted for: ${name}`);
-            return;
-        }
-        console.error("[Route] Identify fail:", err.message);
-        res.status(500).json({ error: "Discovery failed" });
-    }
-});
 
 /**
  * Route 2: Refinement
