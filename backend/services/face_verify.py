@@ -25,7 +25,8 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 import warnings
 warnings.filterwarnings('ignore')
 
-from deepface import DeepFace
+# pyrefly: ignore [missing-import]
+from deepface import DeepFace   
 
 
 def download_image(url):

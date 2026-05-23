@@ -11,13 +11,13 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const isPlaceholder = (value) => {
     if (!value) return true;
     const v = value.toLowerCase().trim();
-    return v.includes('noemail.com') || 
-           v.includes('example.com') || 
-           v.includes('test.com') ||
-           v.startsWith('+00') || 
-           v === 'not found' || 
-           v === 'unknown' ||
-           v === '****@****';
+    return v.includes('noemail.com') ||
+        v.includes('example.com') ||
+        v.includes('test.com') ||
+        v.startsWith('+00') ||
+        v === 'not found' ||
+        v === 'unknown' ||
+        v === '****@****';
 };
 
 const getPlatformEmoji = (platform) => {
@@ -264,7 +264,7 @@ const MultiSearchPage = () => {
             // Auto switch to phone mode if they type a plus followed by numbers
             if (query.startsWith('+') && query.length > 2 && /^\+\d+/.test(query.replace(/\s/g, ''))) {
                 setSearchMode(SEARCH_MODES.PHONE);
-                
+
                 // Try to detect country
                 const matched = COUNTRIES.find(c => query.startsWith(c.prefix));
                 if (matched) setSelectedCountry(matched);
@@ -384,6 +384,10 @@ const MultiSearchPage = () => {
             } else {
                 setStage(STAGES.ENTRY);
             }
+            if (!event.state || !event.state.stage || event.state.stage === STAGES.ENTRY) {
+                setQuery("");
+                localStorage.removeItem("search-query");
+            }
         };
 
         window.addEventListener('popstate', handlePopState);
@@ -452,13 +456,24 @@ const MultiSearchPage = () => {
 
 
 
+    const getPlatformFromUrl = (url) => {
+        if (!url) return "Internet";
+        const lowerUrl = url.toLowerCase();
+        if (lowerUrl.includes('linkedin.com')) return "LinkedIn";
+        if (lowerUrl.includes('github.com')) return "GitHub";
+        if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) return "Twitter/X";
+        if (lowerUrl.includes('instagram.com')) return "Instagram";
+        if (lowerUrl.includes('facebook.com')) return "Facebook";
+        return "Internet";
+    };
+
     const groupCandidates = (list) => {
         if (!list || !Array.isArray(list)) return [];
         return list.map((item, index) => ({
             id: `cand-${index}-${Date.now()}`,
             name: item.title || item.name || "Unknown Identity",
             description: item.subtitle || item.description || "No description available",
-            source: item.source || "Internet",
+            source: item.source || getPlatformFromUrl(item.url),
             url: item.url || ""
         }));
     };
@@ -487,7 +502,9 @@ const MultiSearchPage = () => {
 
         setCandidates([]);
         setShowFeedbackForm(false);
-        setLoadProgress(10); 
+        setData(null);
+        setDeepData(null);
+        setLoadProgress(10);
         setStage(isRefinement ? STAGES.REFINING : STAGES.IDENTIFYING);
         setQuery(searchName);
         setGlobalKeyword(searchKeyword);
@@ -546,7 +563,7 @@ const MultiSearchPage = () => {
             if (!res.ok) throw new Error("Enrichment failed");
 
             const result = await res.json();
-            
+
             // Map the result to match the dashboard structure
             const enrichedData = {
                 person: {
@@ -608,6 +625,8 @@ const MultiSearchPage = () => {
     };
 
     const handleGoBack = () => {
+        setQuery("");
+        localStorage.removeItem("search-query");
         window.history.back();
     };
 
@@ -743,7 +762,7 @@ const MultiSearchPage = () => {
     };
 
     return (
-        <div className={`saas-layout ${stage === STAGES.ENTRY ? 'stage-entry' : ''}`} style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: stage === STAGES.ENTRY ? 'hidden' : 'auto' }}>
+        <div className={`saas-layout ${stage === STAGES.ENTRY ? 'stage-entry' : ''}`} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', overflowX: 'hidden', overflowY: 'auto' }}>
             {/* Top Navigation: Professional SaaS Header */}
             <nav className="navbar">
                 <div className="nav-left">
@@ -756,7 +775,7 @@ const MultiSearchPage = () => {
                     )}
                 </div>
 
-                <div className="nav-center">
+                <div className="nav-center" style={{ visibility: stage === STAGES.ENTRY ? 'hidden' : 'visible' }}>
                     <div className="nav-logo" onClick={handleReset} style={{ cursor: 'pointer' }}>
                         <img src="/logo.png" alt="LookUp Logo" />
                     </div>
@@ -792,219 +811,622 @@ const MultiSearchPage = () => {
                 />
             )}
 
-            <main className="container">
-                {/* 1. Home View (Hero Focus) */}
-                {stage === STAGES.ENTRY && (
-                    <div className="home-view">
-                        <div className="hero-box">
-                            <div className={`hero-search-container animate-fade-up ${searchMode === SEARCH_MODES.PHONE ? 'phone-mode' : ''}`}>
-                                <div className="mode-switcher">
-                                    <button 
-                                        className={`mode-btn ${searchMode === SEARCH_MODES.GENERAL ? 'active' : ''}`}
-                                        onClick={() => setSearchMode(SEARCH_MODES.GENERAL)}
-                                        title="Identity Search"
-                                    >
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                            <circle cx="11" cy="11" r="8"></circle>
-                                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                                        </svg>
-                                    </button>
-                                    <button 
-                                        className={`mode-btn ${searchMode === SEARCH_MODES.PHONE ? 'active' : ''}`}
-                                        onClick={() => setSearchMode(SEARCH_MODES.PHONE)}
-                                        title="Phone Intelligence"
-                                    >
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="5" y="2" width="14" height="20" rx="3" ry="3"></rect>
-                                            <path d="M12 18h.01"></path>
-                                        </svg>
-                                    </button>
-                                </div>
+            {stage === STAGES.ENTRY ? (
+                <div className="landing-container animate-fade-up">
+                    {/* SECTION 1: HERO & SEARCH */}
+                    <section className="landing-hero">
+                        <span className="landing-slogan">Unified Intelligence Platform</span>
+                        <h1 className="landing-title">
+                            Real-time search and intelligence<br />for all your data sources.
+                        </h1>
 
-                                {searchMode === SEARCH_MODES.PHONE && (
-                                    <>
-                                        <div className="country-selector-pill" ref={countryDropdownRef}>
-                                            <div className="phone-prefix-v2" onClick={() => setShowCountryDropdown(!showCountryDropdown)}>
-                                                <span className="flag">{selectedCountry.flag}</span>
-                                                <span className="prefix">{selectedCountry.prefix}</span>
-                                                <svg className={`chevron ${showCountryDropdown ? 'open' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                                    <polyline points="6 9 12 15 18 9"></polyline>
-                                                </svg>
-                                            </div>
-                                            {showCountryDropdown && (
-                                                <div className="country-dropdown-v2">
-                                                    {COUNTRIES.map((c) => (
-                                                        <div key={c.code} className="country-option-v2" onClick={() => { 
-                                                            setSelectedCountry(c); 
-                                                            setShowCountryDropdown(false); 
-                                                            setManualCountry(true);
-                                                        }}>
-                                                            <span className="option-flag">{c.flag}</span>
-                                                            <span className="option-name">{c.name}</span>
-                                                            <span className="option-prefix">{c.prefix}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="search-divider"></div>
-                                    </>
-                                )}
-
-                                <input
-                                    className="hero-search-input"
-                                    type={searchMode === SEARCH_MODES.PHONE ? "tel" : "text"}
-                                    inputMode={searchMode === SEARCH_MODES.PHONE ? "numeric" : "text"}
-                                    pattern={searchMode === SEARCH_MODES.PHONE ? "[0-9]*" : undefined}
-                                    placeholder={searchMode === SEARCH_MODES.PHONE ? "Enter mobile number..." : "Enter name, email, or digital identity..."}
-                                    value={query}
-                                    maxLength={30}
-                                    onChange={(e) => {
-                                        if (searchMode === SEARCH_MODES.PHONE) {
-                                            setQuery(e.target.value.replace(/\D/g, ''));
-                                        } else {
-                                            setQuery(e.target.value);
-                                        }
-                                    }}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
-                                    autoFocus
-                                />
-                                <button className="hero-search-btn" onClick={() => handleIdentify()}>
-                                    Run Intelligence
+                        {/* Redesigned Search Box */}
+                        <div className={`landing-search-box ${searchMode === SEARCH_MODES.PHONE ? 'phone-mode' : ''}`}>
+                            {/* Mode switcher integrated inside the search bar */}
+                            <div className="mode-switcher">
+                                <button
+                                    className={`mode-btn ${searchMode === SEARCH_MODES.GENERAL ? 'active' : ''}`}
+                                    onClick={() => setSearchMode(SEARCH_MODES.GENERAL)}
+                                    title="Identity Search"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                    </svg>
+                                </button>
+                                <button
+                                    className={`mode-btn ${searchMode === SEARCH_MODES.PHONE ? 'active' : ''}`}
+                                    onClick={() => setSearchMode(SEARCH_MODES.PHONE)}
+                                    title="Phone Intelligence"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <rect x="5" y="2" width="14" height="20" rx="3" ry="3"></rect>
+                                        <path d="M12 18h.01"></path>
+                                    </svg>
                                 </button>
                             </div>
 
-                            <span className="hero-tag animate-fade-up">Unified Intelligence Platform</span>
-                            <h1 className="hero-title animate-fade-up">High-performance data intelligence</h1>
-                            <div className="trust-indicators animate-fade-up">
-                                <div className="indicator">
-                                    <div className="indicator-dot"></div>
-                                    <span>Multi-source intelligence</span>
+                            {/* Divider if switcher is shown */}
+                            <div className="landing-search-divider"></div>
+
+                            {/* Magnifying Glass Search Icon (only in General Mode) */}
+                            {searchMode === SEARCH_MODES.GENERAL && (
+                                <div className="landing-search-icon">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                    </svg>
                                 </div>
-                                <div className="indicator">
-                                    <div className="indicator-dot"></div>
-                                    <span>AI-powered insights</span>
-                                </div>
-                                <div className="indicator">
-                                    <div className="indicator-dot"></div>
-                                    <span>Real-time results</span>
-                                </div>
+                            )}
+
+                            {/* Country dropdown in phone mode */}
+                            {searchMode === SEARCH_MODES.PHONE && (
+                                <>
+                                    <div className="country-selector-pill" ref={countryDropdownRef}>
+                                        <div className="phone-prefix-v2" onClick={() => setShowCountryDropdown(!showCountryDropdown)}>
+                                            <span className="flag">{selectedCountry.flag}</span>
+                                            <span className="prefix">{selectedCountry.prefix}</span>
+                                            <svg className={`chevron ${showCountryDropdown ? 'open' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="6 9 12 15 18 9"></polyline>
+                                            </svg>
+                                        </div>
+                                        {showCountryDropdown && (
+                                            <div className="country-dropdown-v2">
+                                                {COUNTRIES.map((c) => (
+                                                    <div key={c.code} className="country-option-v2" onClick={() => {
+                                                        setSelectedCountry(c);
+                                                        setShowCountryDropdown(false);
+                                                        setManualCountry(true);
+                                                    }}>
+                                                        <span className="option-flag">{c.flag}</span>
+                                                        <span className="option-name">{c.name}</span>
+                                                        <span className="option-prefix">{c.prefix}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="landing-search-divider"></div>
+                                </>
+                            )}
+
+                            {/* Main Input Text Field */}
+                            <input
+                                className="landing-search-input-field"
+                                type={searchMode === SEARCH_MODES.PHONE ? "tel" : "text"}
+                                inputMode={searchMode === SEARCH_MODES.PHONE ? "numeric" : "text"}
+                                pattern={searchMode === SEARCH_MODES.PHONE ? "[0-9]*" : undefined}
+                                placeholder={searchMode === SEARCH_MODES.PHONE ? "Enter mobile number..." : "Enter your Name "}
+                                value={query}
+                                maxLength={30}
+                                onChange={(e) => {
+                                    if (searchMode === SEARCH_MODES.PHONE) {
+                                        setQuery(e.target.value.replace(/\D/g, ''));
+                                    } else {
+                                        setQuery(e.target.value);
+                                    }
+                                }}
+                                onKeyDown={(e) => e.key === 'Enter' && handleIdentify()}
+                                autoFocus
+                            />
+
+                            {/* Run Intelligence CTA Pill */}
+                            <button className="landing-search-submit-btn" onClick={() => handleIdentify()}>
+                                Run Intelligence
+                            </button>
+                        </div>
+
+                        {/* Hero Bullet Indicators */}
+                        <div className="landing-bullets">
+                            <div className="landing-bullet-item">
+                                <span style={{ fontSize: '0.8rem', color: '#2563eb' }}>●</span>
+                                <span>Multi-source intelligence</span>
                             </div>
-
-                            {/* Mobile-only content to fill blank space */}
-                            <div className="mobile-home-extras animate-fade-up">
-                                <div className="mobile-stats-row">
-                                    <div className="mobile-stat-chip">
-                                        <span className="stat-icon">🧠</span>
-                                        <div>
-                                            <div className="stat-num">10M+</div>
-                                            <div className="stat-label">Records</div>
-                                        </div>
-                                    </div>
-                                    <div className="mobile-stat-chip">
-                                        <span className="stat-icon">⚡</span>
-                                        <div>
-                                            <div className="stat-num">&lt;2s</div>
-                                            <div className="stat-label">Results</div>
-                                        </div>
-                                    </div>
-                                    <div className="mobile-stat-chip">
-                                        <span className="stat-icon">🔒</span>
-                                        <div>
-                                            <div className="stat-num">100%</div>
-                                            <div className="stat-label">Private</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="mobile-feature-list">
-                                    <div className="mobile-feature-item">
-                                        <div className="mf-icon">🌐</div>
-                                        <div className="mf-text">
-                                            <div className="mf-title">Cross-Platform Search</div>
-                                            <div className="mf-desc">Search across CSV, SQL & online sources simultaneously</div>
-                                        </div>
-                                    </div>
-                                    <div className="mobile-feature-item">
-                                        <div className="mf-icon">📱</div>
-                                        <div className="mf-text">
-                                            <div className="mf-title">Phone Intelligence</div>
-                                            <div className="mf-desc">Identify owners from any number worldwide</div>
-                                        </div>
-                                    </div>
-                                    <div className="mobile-feature-item">
-                                        <div className="mf-icon">🎯</div>
-                                        <div className="mf-text">
-                                            <div className="mf-title">AI-Powered Accuracy</div>
-                                            <div className="mf-desc">Smart deduplication and confidence scoring</div>
-                                        </div>
-                                    </div>
-                                </div>
+                            <div className="landing-bullet-item">
+                                <span style={{ fontSize: '0.8rem', color: '#2563eb' }}>●</span>
+                                <span>AI-powered insights</span>
+                            </div>
+                            <div className="landing-bullet-item">
+                                <span style={{ fontSize: '0.8rem', color: '#2563eb' }}>●</span>
+                                <span>Real-time results</span>
                             </div>
                         </div>
-                    </div>
-                )}
+                    </section>
 
-                {/* 2. Selecting View (Structured Candidates) */}
-                {(stage === STAGES.SELECTING) && (
-                    <div className="selecting-view animate-fade-up">
-                        <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                                <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800 }}>
-                                    Potential Intel Matches
-                                </h2>
-                                <p style={{ color: 'var(--text-soft)', margin: '0.5rem 0 0' }}>
-                                    Select the correct identity to trigger deep intelligence acquisition.
+                    {/* SECTION 2: HOW IT WORKS */}
+                    <section className="landing-section">
+                        <div className="landing-section-header">
+                            <h2 className="landing-section-title">How it works</h2>
+                            <p className="landing-section-subtitle">
+                                Experience the power of unified intelligence in three simple steps.
+                            </p>
+                        </div>
+
+                        <div className="landing-how-grid">
+                            <div className="landing-how-card">
+                                <div className="landing-how-icon-box">
+                                    {/* Icon Step 1: Connect */}
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                                    </svg>
+                                </div>
+                                <h3 className="landing-how-card-title">Step 1: Connect</h3>
+                                <p className="landing-how-card-desc">
+                                    Connect your data sources including SaaS apps, databases, and files in minutes.
+                                </p>
+                            </div>
+
+                            <div className="landing-how-card">
+                                <div className="landing-how-icon-box">
+                                    {/* Icon Step 2: Analyze */}
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <path d="M12 16v-4M12 8h.01"></path>
+                                    </svg>
+                                </div>
+                                <h3 className="landing-how-card-title">Step 2: Analyze</h3>
+                                <p className="landing-how-card-desc">
+                                    Run unified intelligence with AI-powered analysis and cross-platform search.
+                                </p>
+                            </div>
+
+                            <div className="landing-how-card">
+                                <div className="landing-how-icon-box">
+                                    {/* Icon Step 3: Solve */}
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                                    </svg>
+                                </div>
+                                <h3 className="landing-how-card-title">Step 3: Solve</h3>
+                                <p className="landing-how-card-desc">
+                                    Get real-time answers and instant insights across all your connected platforms.
                                 </p>
                             </div>
                         </div>
+                    </section>
 
-                        <div className="candidates-grid">
-                            {candidates.map((person, idx) => (
-                                <div 
-                                    key={person.id} 
-                                    className="saas-card animate-scale-in" 
-                                    style={{ cursor: 'pointer', border: stage === STAGES.CONFIRMING ? '2px solid var(--accent)' : '1px solid var(--border-light)' }}
-                                >
-                                    <div className="card-icon" style={{ marginTop: '0.25rem' }}>👤</div>
-                                    <div className="card-body">
-                                        <div className="card-meta">
-                                            {person.source === 'local' ? 'Verified Archive' : `Source: ${person.source}`}
-                                        </div>
-                                        <h3 className="card-title">{person.name}</h3>
-                                        <p className="card-desc" style={{ fontSize: '0.9rem', color: 'var(--text-main)', opacity: 0.9 }}>
-                                            {person.description}
-                                        </p>
-                                        
-                                        <div className="card-actions-row" style={{ marginTop: '1.25rem' }}>
-                                            <button 
-                                                className="nav-btn primary" 
-                                                style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', width: '100%', background: 'var(--accent)' }}
-                                                onClick={() => handleCandidateSelect(person)}
-                                            >
-                                                Select and Initialize Deep Search
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+                    {/* SECTION 3: FEATURES */}
+                    <section className="landing-section landing-section-bg-gray">
+                        <div className="landing-section-header">
+                            <h2 className="landing-section-title">Powerful features for modern teams</h2>
+                            <p className="landing-section-subtitle">
+                                Everything you need to unify your data and unlock insights.
+                            </p>
                         </div>
 
-                        {stage === STAGES.SELECTING && (
-                            <div className="animate-fade-up" style={{ marginTop: '3rem', textAlign: 'center' }}>
-                                <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>Don't see who you're looking for?</p>
-                                <button className="nav-btn secondary" onClick={() => {
-                                    setFeedbackData({ name: query, keyword: globalKeyword, location: '', number: '' });
-                                    setShowFeedbackForm(true);
-                                }} style={{ border: '1px solid var(--accent)', color: 'var(--accent)' }}>
-                                    Person Not Found
+                        <div className="landing-features-grid">
+                            <div className="landing-feature-card">
+                                <div className="landing-feature-icon-wrapper">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                    </svg>
+                                </div>
+                                <div className="landing-feature-text-block">
+                                    <h3 className="landing-feature-card-title">Universal Search</h3>
+                                    <p className="landing-feature-card-desc">
+                                        Search across every database, cloud app, and file system from a single interface.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="landing-feature-card">
+                                <div className="landing-feature-icon-wrapper">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+                                    </svg>
+                                </div>
+                                <div className="landing-feature-text-block">
+                                    <h3 className="landing-feature-card-title">AI-Powered Insights</h3>
+                                    <p className="landing-feature-card-desc">
+                                        Leverage large language models to summarize findings and answer complex questions.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="landing-feature-card">
+                                <div className="landing-feature-icon-wrapper">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                                    </svg>
+                                </div>
+                                <div className="landing-feature-text-block">
+                                    <h3 className="landing-feature-card-title">Real-time Sync</h3>
+                                    <p className="landing-feature-card-desc">
+                                        Data stays fresh with continuous, low-latency indexing of all your connected sources.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="landing-feature-card">
+                                <div className="landing-feature-icon-wrapper">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                    </svg>
+                                </div>
+                                <div className="landing-feature-text-block">
+                                    <h3 className="landing-feature-card-title">Enterprise Security</h3>
+                                    <p className="landing-feature-card-desc">
+                                        Built with SOC2 compliance and granular access controls to keep your data safe.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* SECTION 4: TESTIMONIALS */}
+                    <section className="landing-section">
+                        <div className="landing-section-header">
+                            <h2 className="landing-section-title">Trusted by innovative teams</h2>
+                            <p className="landing-section-subtitle">
+                                Join thousands of data-driven professionals who have transformed their intelligence workflow.
+                            </p>
+                        </div>
+
+                        <div className="landing-testimonials-grid">
+                            <div className="landing-testimonial-card">
+                                <div>
+                                    <div className="landing-stars">★★★★★</div>
+                                    <p className="landing-testimonial-text">
+                                        "LookUp has completely changed how we handle cross-platform discovery. What used to take hours of manual searching now happens in seconds with unified intelligence."
+                                    </p>
+                                </div>
+                                <div className="landing-testimonial-author">
+                                    <div className="landing-testimonial-avatar">SC</div>
+                                    <div>
+                                        <div className="landing-testimonial-author-name">Sarah Chen</div>
+                                        <div className="landing-testimonial-author-role">Head of Data at TechFlow</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="landing-testimonial-card">
+                                <div>
+                                    <div className="landing-stars">★★★★★</div>
+                                    <p className="landing-testimonial-text">
+                                        "The AI-powered insights are remarkably accurate. It's like having a senior data analyst working across all our databases 24/7. Highly recommended for any scaling team."
+                                    </p>
+                                </div>
+                                <div className="landing-testimonial-author">
+                                    <div className="landing-testimonial-avatar">MR</div>
+                                    <div>
+                                        <div className="landing-testimonial-author-name">Marcus Rodriguez</div>
+                                        <div className="landing-testimonial-author-role">CTO at Streamline AI</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="landing-testimonial-card">
+                                <div>
+                                    <div className="landing-stars">★★★★★</div>
+                                    <p className="landing-testimonial-text">
+                                        "Enterprise security was our biggest concern, but LookUp's SOC2 compliance and granular controls gave us the confidence we needed to integrate our most sensitive data."
+                                    </p>
+                                </div>
+                                <div className="landing-testimonial-author">
+                                    <div className="landing-testimonial-avatar">EK</div>
+                                    <div>
+                                        <div className="landing-testimonial-author-name">Elena Kostas</div>
+                                        <div className="landing-testimonial-author-role">Director of Operations at Nexus</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* SECTION 5: PRICING */}
+                    <section className="landing-section landing-section-bg-gray">
+                        <div className="landing-section-header">
+                            <h2 className="landing-section-title">Simple, transparent pricing</h2>
+                            <p className="landing-section-subtitle">
+                                Choose the plan that's right for your team's intelligence needs.
+                            </p>
+                        </div>
+
+                        <div className="landing-pricing-grid">
+                            {/* Starter */}
+                            <div className="landing-pricing-card">
+                                <h3 className="landing-pricing-title">Starter</h3>
+                                <p className="landing-pricing-subtitle">
+                                    Perfect for individuals and small projects.
+                                </p>
+                                <div className="landing-pricing-price-box">
+                                    <span className="landing-pricing-price">$0</span>
+                                    <span className="landing-pricing-period">/mo</span>
+                                </div>
+                                <ul className="landing-pricing-features-list">
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>3 data sources</span>
+                                    </li>
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>Basic AI insights</span>
+                                    </li>
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>24h sync latency</span>
+                                    </li>
+                                </ul>
+                                <button className="landing-pricing-btn landing-pricing-btn-outline" onClick={() => setIsAuthModalOpen(true)}>
+                                    Get Started
                                 </button>
                             </div>
-                        )}
-                    </div>
-                )}
 
-            </main>
+                            {/* Professional */}
+                            <div className="landing-pricing-card landing-pricing-card-highlight">
+                                <div className="landing-pricing-badge">Most Popular</div>
+                                <h3 className="landing-pricing-title">Professional</h3>
+                                <p className="landing-pricing-subtitle">
+                                    For growing teams that need more power.
+                                </p>
+                                <div className="landing-pricing-price-box">
+                                    <span className="landing-pricing-price">$49</span>
+                                    <span className="landing-pricing-period">/mo</span>
+                                </div>
+                                <ul className="landing-pricing-features-list">
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>Unlimited data sources</span>
+                                    </li>
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>Advanced AI intelligence</span>
+                                    </li>
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>Real-time sync</span>
+                                    </li>
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>Priority support</span>
+                                    </li>
+                                </ul>
+                                <button className="landing-pricing-btn landing-pricing-btn-solid" onClick={() => setIsAuthModalOpen(true)}>
+                                    Get Started
+                                </button>
+                            </div>
+
+                            {/* Enterprise */}
+                            <div className="landing-pricing-card">
+                                <h3 className="landing-pricing-title">Enterprise</h3>
+                                <p className="landing-pricing-subtitle">
+                                    Scalable solutions for large organizations.
+                                </p>
+                                <div className="landing-pricing-price-box">
+                                    <span className="landing-pricing-price" style={{ fontSize: '2.5rem' }}>Custom</span>
+                                </div>
+                                <ul className="landing-pricing-features-list">
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>Everything in Pro</span>
+                                    </li>
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>SOC2 compliance</span>
+                                    </li>
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>Custom integrations</span>
+                                    </li>
+                                    <li className="landing-pricing-feature-item">
+                                        <div className="landing-pricing-check-icon">✓</div>
+                                        <span>Dedicated account manager</span>
+                                    </li>
+                                </ul>
+                                <button className="landing-pricing-btn landing-pricing-btn-gray" onClick={() => setIsAuthModalOpen(true)}>
+                                    Contact Sales
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* SECTION 6: FAQ */}
+                    <section className="landing-section">
+                        <div className="landing-section-header">
+                            <h2 className="landing-section-title">Frequently Asked Questions</h2>
+                            <p className="landing-section-subtitle">
+                                Everything you need to know about LookUp intelligence platform.
+                            </p>
+                        </div>
+
+                        <div className="landing-faq-grid">
+                            <div className="landing-faq-item">
+                                <div className="landing-faq-icon-wrapper">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                                    </svg>
+                                </div>
+                                <div className="landing-faq-content">
+                                    <h3 className="landing-faq-question">How many data sources can I connect?</h3>
+                                    <p className="landing-faq-answer">
+                                        The number of data sources depends on your plan. Starter includes up to 3, while Professional and Enterprise offer unlimited connections to your favorite SaaS apps, databases, and file systems.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="landing-faq-item">
+                                <div className="landing-faq-icon-wrapper">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                    </svg>
+                                </div>
+                                <div className="landing-faq-content">
+                                    <h3 className="landing-faq-question">Is my data secure with LookUp?</h3>
+                                    <p className="landing-faq-answer">
+                                        Absolutely. We use enterprise-grade encryption and are SOC2 Type II compliant. We never store your raw data; we only index it to provide real-time intelligence.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="landing-faq-item">
+                                <div className="landing-faq-icon-wrapper">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                                    </svg>
+                                </div>
+                                <div className="landing-faq-content">
+                                    <h3 className="landing-faq-question">Do you offer a free trial?</h3>
+                                    <p className="landing-faq-answer">
+                                        Yes! You can start with our Starter plan for free to explore basic features. For teams, we offer a 14-day free trial of the Professional plan to experience full AI-powered insights.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="landing-faq-item">
+                                <div className="landing-faq-icon-wrapper">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <polyline points="17 1 21 5 17 9"></polyline>
+                                        <path d="M3 11V9a4 4 0 0 1 4-4h14M7 23 3 19 7 15"></path>
+                                        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                                    </svg>
+                                </div>
+                                <div className="landing-faq-content">
+                                    <h3 className="landing-faq-question">Can I change my plan later?</h3>
+                                    <p className="landing-faq-answer">
+                                        Of course. You can upgrade or downgrade your plan at any time from your account settings. Changes will be reflected in your next billing cycle.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* SECTION 7: FOOTER */}
+                    <footer className="landing-footer">
+                        <div className="landing-footer-grid">
+                            <div className="landing-footer-brand-col">
+                                <a href="/" className="landing-footer-logo">
+                                    <div className="landing-footer-logo-icon">Q</div>
+                                    <span>LookUp</span>
+                                </a>
+                                <p className="landing-footer-desc">
+                                    The unified intelligence platform that connects your data sources for real-time search and AI-powered insights.
+                                </p>
+                            </div>
+
+                            <div>
+                                <h4 className="landing-footer-title-col">Product</h4>
+                                <ul className="landing-footer-links">
+                                    <li className="landing-footer-link-item"><a href="/">Features</a></li>
+                                    <li className="landing-footer-link-item"><a href="/">Pricing</a></li>
+                                    <li className="landing-footer-link-item"><a href="/">Documentation</a></li>
+                                    <li className="landing-footer-link-item"><a href="/">API Reference</a></li>
+                                </ul>
+                            </div>
+
+                            <div>
+                                <h4 className="landing-footer-title-col">Company</h4>
+                                <ul className="landing-footer-links">
+                                    <li className="landing-footer-link-item"><a href="/">About Us</a></li>
+                                    <li className="landing-footer-link-item"><a href="/">Blog</a></li>
+                                    <li className="landing-footer-link-item"><a href="/">Careers</a></li>
+                                    <li className="landing-footer-link-item"><a href="/">Contact</a></li>
+                                </ul>
+                            </div>
+
+                            <div>
+                                <h4 className="landing-footer-title-col">Legal</h4>
+                                <ul className="landing-footer-links">
+                                    <li className="landing-footer-link-item"><a href="/">Privacy Policy</a></li>
+                                    <li className="landing-footer-link-item"><a href="/">Terms of Service</a></li>
+                                    <li className="landing-footer-link-item"><a href="/">Security</a></li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div className="landing-footer-divider"></div>
+
+                        <div className="landing-footer-bottom">
+                            <span className="landing-footer-copy">
+                                &copy; 2024 LookUp. All rights reserved.
+                            </span>
+
+                            <div className="landing-footer-socials">
+                                <a href="https://twitter.com" target="_blank" rel="noreferrer" className="landing-footer-social-link">
+                                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path>
+                                    </svg>
+                                </a>
+                                <a href="https://linkedin.com" target="_blank" rel="noreferrer" className="landing-footer-social-link">
+                                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"></path>
+                                    </svg>
+                                </a>
+                                <a href="https://github.com" target="_blank" rel="noreferrer" className="landing-footer-social-link">
+                                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                        <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.137 20.162 22 16.418 22 12c0-5.523-4.477-10-10-10z"></path>
+                                    </svg>
+                                </a>
+                            </div>
+                        </div>
+                    </footer>
+                </div>
+            ) : (
+                <main className="container">
+                    {/* 2. Selecting View (Structured Candidates) */}
+                    {(stage === STAGES.SELECTING) && (
+                        <div className="selecting-view animate-fade-up">
+                            <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800 }}>
+                                        Potential Intel Matches
+                                    </h2>
+                                    <p style={{ color: 'var(--text-soft)', margin: '0.5rem 0 0' }}>
+                                        Select the correct identity to trigger deep intelligence acquisition.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="candidates-grid">
+                                {candidates.map((person, idx) => (
+                                    <div
+                                        key={person.id}
+                                        className="saas-card animate-scale-in"
+                                        style={{ cursor: 'pointer', border: stage === STAGES.CONFIRMING ? '2px solid var(--accent)' : '1px solid var(--border-light)' }}
+                                    >
+                                        <div className="card-icon" style={{ marginTop: '0.25rem' }}>👤</div>
+                                        <div className="card-body">
+                                            <div className="card-meta">
+                                                {person.source === 'local' ? 'Verified Archive' : `Source: ${person.source}`}
+                                            </div>
+                                            <h3 className="card-title">{person.name}</h3>
+                                            <p className="card-desc" style={{ fontSize: '0.9rem', color: 'var(--text-main)', opacity: 0.9 }}>
+                                                {person.description}
+                                            </p>
+
+                                            <div className="card-actions-row" style={{ marginTop: '1.25rem' }}>
+                                                <button
+                                                    className="nav-btn primary"
+                                                    style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', width: '100%', background: 'var(--accent)' }}
+                                                    onClick={() => handleCandidateSelect(person)}
+                                                >
+                                                    Select and Initialize Deep Search
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {stage === STAGES.SELECTING && (
+                                <div className="animate-fade-up" style={{ marginTop: '3rem', textAlign: 'center' }}>
+                                    <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>Don't see who you're looking for?</p>
+                                    <button className="nav-btn secondary" onClick={() => {
+                                        setFeedbackData({ name: query, keyword: globalKeyword, location: '', number: '' });
+                                        setShowFeedbackForm(true);
+                                    }} style={{ border: '1px solid var(--accent)', color: 'var(--accent)' }}>
+                                        Person Not Found
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </main>
+            )}
 
             {/* 3. Dashboard View — Full-Width (outside .container) */}
             {stage === STAGES.DASHBOARD && deepData && (
@@ -1205,8 +1627,8 @@ const MultiSearchPage = () => {
                                     </div>
                                     {deepData.externalDocuments.length > 6 && (
                                         <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
-                                            <button 
-                                                className="nav-btn secondary" 
+                                            <button
+                                                className="nav-btn secondary"
                                                 onClick={() => setShowAllDocuments(!showAllDocuments)}
                                                 style={{ padding: '0.6rem 2rem', fontSize: '0.9rem' }}
                                             >
@@ -1326,7 +1748,7 @@ const MultiSearchPage = () => {
                         </div>
 
                         <div className="modal-tabs" style={{ display: 'flex', gap: '1rem', padding: '0 1.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-light)' }}>
-                            <button 
+                            <button
                                 type="button"
                                 className={`tab-btn ${searchMode === SEARCH_MODES.GENERAL ? 'active' : ''}`}
                                 onClick={() => setSearchMode(SEARCH_MODES.GENERAL)}
@@ -1334,7 +1756,7 @@ const MultiSearchPage = () => {
                             >
                                 Name Search
                             </button>
-                            <button 
+                            <button
                                 type="button"
                                 className={`tab-btn ${searchMode === SEARCH_MODES.PHONE ? 'active' : ''}`}
                                 onClick={() => setSearchMode(SEARCH_MODES.PHONE)}

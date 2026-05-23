@@ -134,6 +134,20 @@ class InstagramService {
         user_id: response.data.user?.pk || null
       };
     } catch (error) {
+      const status = error.response?.status;
+      const isRedirect = status === 302 || status === 500;
+      const isLoginWall = error.request?.res?.responseUrl?.includes('accounts/login');
+      
+      if (isRedirect || isLoginWall || (error.message && error.message.includes('500'))) {
+        console.warn(`[IG Service] Graceful Degradation: Hit Instagram bot protection for handle @${handle}`);
+        return {
+          email_mask: null,
+          phone_mask: null,
+          user_id: null,
+          protected: true
+        };
+      }
+      
       console.error('[IG Service] Lookup Error:', error.response?.data || error.message);
       return null;
     }
@@ -238,6 +252,9 @@ class InstagramService {
           // It has a mask but it doesn't match our input
           confidence = 10;
           reason = 'Mismatched contact info';
+        } else if (info.protected) {
+          confidence = 20;
+          reason = 'Profile protected or rate limited';
         }
       }
 
